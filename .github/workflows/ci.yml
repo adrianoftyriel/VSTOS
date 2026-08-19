@@ -1,0 +1,79 @@
+name: CI
+
+# Two jobs, because they answer different questions.
+#
+#   tests     - is the logic right? Fast, runs on every push, no privileges.
+#   provision - does provisioning a real Ubuntu system actually work? Slow, needs
+#               a container it is allowed to modify, and is the only thing here
+#               that would catch a package that has been renamed or dropped.
+on:
+  push:
+    branches: [main, dev, 'claude/**']
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Lint and unit tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends shellcheck python3-yaml
+
+      - name: Run the suite
+        run: ./tests/run-tests.sh
+
+  provision:
+    name: Provision a clean Ubuntu 24.04
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:24.04
+      # The provisioner writes to /etc, creates users and enables units, which is
+      # the whole point of the exercise. It runs as root inside a throwaway
+      # container, not on the runner.
+      options: --user root
+    steps:
+      - name: Install checkout dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates python3
+
+      - uses: actions/checkout@v4
+
+      - name: Provision
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          # A container boots the host's kernel; installing one would cost several
+          # minutes and prove nothing.
+          VSTOS_SKIP_KERNEL: "1"
+          # No systemd inside the container, so unit enabling is best-effort.
+          VSTOS_FORCE_NO_SYSTEMD: "1"
+          # FBKSuppressor lives in another repository. Without a token that can
+          # read it the download fails, which the provisioner treats as a warning -
+          # exactly as it would on a machine with no network at install time.
+          GITHUB_TOKEN: ${{ secrets.FBK_READ_TOKEN }}
+        run: ./provision/vstos-provision
+
+      - name: Verify the result
+        run: ./provision/vstos-provision --step 90
+
+      - name: Run the suite against the provisioned system
+        run: |
+          apt-get install -y --no-install-recommends shellcheck python3-yaml
+          ./tests/run-tests.sh
+
+      - name: What the plugin library came to
+        run: |
+          . /usr/lib/vstos/vstos-lib.sh
+          echo "LV2:  $(vstos_count_bundles lv2 /usr/lib/lv2 /usr/local/lib/lv2)"
+          echo "VST3: $(vstos_count_bundles vst3 /usr/lib/vst3 /usr/local/lib/vst3)"
+          ls /usr/lib/lv2 | head -40

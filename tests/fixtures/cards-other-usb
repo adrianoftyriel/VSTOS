@@ -1,0 +1,4 @@
+ 0 [PCH            ]: HDA-Intel - HDA Intel PCH
+                      HDA Intel PCH at 0xf7e10000 irq 145
+ 1 [USB            ]: USB-Audio - Scarlett 2i2 USB
+                      Focusrite Scarlett 2i2 USB at usb-0000:00:14.0-1, high speed

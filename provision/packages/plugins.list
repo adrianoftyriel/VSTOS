@@ -1,0 +1,73 @@
+# The plugin library.
+#
+# Chosen for live sound on a digital console, not for studio production: the
+# question asked of each entry was "would a system tech reach for this during a
+# service", and instruments, samplers and synthesisers are therefore absent.
+# docs/PLUGINS.md lists the extras, and how to add them in one command.
+#
+# Everything here is free software from the Ubuntu archive - GPL, LGPL or
+# MIT - which means it is redistributable inside an ISO, and updated by the same
+# `apt upgrade` as the rest of the machine. That constraint is the reason a few
+# well-regarded plugins are missing rather than an oversight; see docs/PLUGINS.md.
+
+# --- Linux Studio Plugins ------------------------------------------------------
+# The centrepiece. Parametric EQ up to 32 bands, compressor, sidechain
+# compressor, expander, gate, limiter, de-esser, crossover, delay compensator,
+# impulse-response loader, loudness and spectrum analysis. Consistently the
+# highest-rated free suite on Linux, and unusual in shipping VST3 as well as LV2,
+# so the same plugin loads whichever format you reach for.
+lsp-plugins-lv2
+lsp-plugins-vst3
+
+# --- Calf Studio Gear ----------------------------------------------------------
+# Compressor, multiband compressor, sidechain gate, EQ (5/8/12/30 band), reverb,
+# exciter, bass enhancer, vintage delay, analyzer. Very legible interfaces, which
+# matters when someone else has to drive the rig.
+calf-plugins
+
+# --- x42 / Robin Gareus ---------------------------------------------------------
+# fil4 EQ, digital peak limiter with true-peak detection, a-comp, a-exp, a-delay,
+# and the meter set that makes a broadcast or streamed service straightforward:
+# EBU R128 loudness, K-meters, true-peak, phase correlation, goniometer. Also
+# tuna, a tuner accurate enough for a line check.
+x42-plugins
+
+# --- ZamAudio -------------------------------------------------------------------
+# ZamComp, ZamCompX2, ZamEQ2, ZamGate, ZaMaximX2, ZamGEQ31, ZamTube, ZamDelay.
+# Small, fast, and the 31-band graphic is the familiar shape for ringing out a
+# room by hand when you want to do it the old way.
+zam-plugins
+
+# --- Reverb ---------------------------------------------------------------------
+# DragonFly: hall, room, plate and early-reflection algorithms. The best free
+# reverb on the platform by common consent.
+dragonfly-reverb
+# Fons Adriaensen's zita-rev1 and zita-at1 are deliberately NOT here. They are
+# excellent, and they are standalone JACK applications rather than plugins - they
+# install binaries, not .lv2 bundles, so the host cannot instantiate them and
+# listing them here would inflate the plugin count with things that are not
+# plugins. docs/PLUGINS.md says how to add them and how to use them.
+
+# --- Further channel-strip and utility sets -------------------------------------
+# eq10q: parametric EQ, compressor, gate, bass enhancer.
+eq10q
+# Invada: compressor, delay, filters, tube distortion, meters.
+invada-studio-plugins-lv2
+# abGate: a clean, low-CPU noise gate.
+abgate
+# Fons Adriaensen's plugins as LV2 - parametric EQ, phaser, chorus.
+fomp
+# MDA: the classic free set, ported to LV2.
+mda-lv2
+# TAP: reverberator, dynamics, echo. Old, still good, almost free CPU-wise.
+tap-plugins
+# CAPS: plate reverb, compressor, EQ, amp models.
+caps
+# SWH: the LADSPA collection most other free plugins were measured against.
+swh-plugins
+
+# --- Guitar and instrument amplification ------------------------------------------
+# guitarix supplies amp and cabinet models plus a large effects set as LV2, which
+# is what turns a DI'd guitar into something that sits in a mix without a physical
+# amp on stage.
+guitarix-lv2

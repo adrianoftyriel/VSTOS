@@ -1,0 +1,12 @@
+# Bring the engine up the moment the console is plugged in.
+#
+# vstos-jack.service already retries forever, so this rule is about latency of
+# response, not correctness: without it, plugging the console in mid-restart-delay
+# means waiting for the next retry. With it, the rig is up within a second.
+#
+# @AUDIO_DEVICE_MATCH@ is substituted from /etc/vstos/vstos.conf at provisioning
+# time, so this rule and the resolver in vstos-lib.sh can never disagree about
+# which device is the console.
+ACTION=="add", SUBSYSTEM=="sound", KERNEL=="card*", \
+    ATTRS{product}=="*@AUDIO_DEVICE_MATCH@*", \
+    TAG+="systemd", ENV{SYSTEMD_WANTS}+="vstos-jack.service"

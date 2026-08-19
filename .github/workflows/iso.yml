@@ -1,0 +1,70 @@
+name: ISO
+
+# Building the installer means downloading a 3 GB Ubuntu image and writing another
+# one out, so it does not run on every push. Tag a release, or start it by hand.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      ubuntu_release:
+        description: Ubuntu point release to build on
+        default: "24.04.3"
+      fbk_release:
+        description: FBKSuppressor tag to pin (blank means the newest)
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build the installer ISO
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xorriso
+
+      # The base ISO plus the one being written is about 6 GB, and a GitHub runner
+      # does not have much more than that free once its preinstalled toolchains are
+      # accounted for.
+      - name: Make room
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          df -h /
+
+      - name: Build
+        env:
+          UBUNTU_RELEASE: ${{ inputs.ubuntu_release || '24.04.3' }}
+          FBK_RELEASE: ${{ inputs.fbk_release }}
+        run: |
+          ./build/build-iso.sh \
+            --branch "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" \
+            --out "${GITHUB_WORKSPACE}/vstos-installer.iso"
+
+      - name: Checksum
+        run: sha256sum vstos-installer.iso | tee vstos-installer.iso.sha256
+
+      # The ISO is larger than the artifact limit is comfortable with, so a tagged
+      # build publishes a release and a manual build leaves only the checksum
+      # behind as evidence that it built.
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "VSTOS ${GITHUB_REF_NAME}" \
+            --notes "Unattended installer ISO. Write it to a USB stick with \`dd\`, boot the target, and it installs itself and reboots into the plugin host. It erases the disk it installs to." \
+            vstos-installer.iso vstos-installer.iso.sha256
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        with:
+          name: vstos-iso-checksum
+          path: vstos-installer.iso.sha256

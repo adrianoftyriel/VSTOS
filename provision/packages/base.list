@@ -1,0 +1,27 @@
+# Minimal system. Everything here earns its place on an appliance; anything that
+# only makes a general-purpose machine nicer is deliberately absent.
+
+# Administration over the network, because the machine has no desktop and may
+# have no screen.
+openssh-server
+# Reach it as vstos.local without knowing its address, which matters when it
+# takes a DHCP lease from a venue's network you do not control.
+avahi-daemon
+libnss-mdns
+
+# A clock that is right without a network, so log timestamps from a rehearsal in
+# a basement still line up.
+chrony
+
+# Diagnosis without a browser.
+usbutils
+pciutils
+alsa-utils
+htop
+less
+nano
+curl
+ca-certificates
+
+# The provisioner and its tests are bash, and Ubuntu Server's /bin/sh is dash.
+bash

@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Openbox is present only to manage plugin editor windows, which are separate
+  top-level X windows that need to be movable, raisable and closable. Everything
+  that makes Openbox feel like a desktop is turned off here: one desktop, no root
+  menu, no keyboard shortcuts that could strand an operator in an empty session.
+
+  Anything not named below keeps Openbox's built-in default.
+-->
+<openbox_config xmlns="http://openbox.org/3.4/rc">
+  <desktops>
+    <number>1</number>
+    <names><name>Host</name></names>
+  </desktops>
+
+  <focus>
+    <focusNew>yes</focusNew>
+    <followMouse>no</followMouse>
+    <focusLast>yes</focusLast>
+  </focus>
+
+  <placement>
+    <policy>Smart</policy>
+    <center>yes</center>
+  </placement>
+
+  <theme>
+    <name>Clearlooks</name>
+    <titleLayout>LC</titleLayout>
+    <keepBorder>yes</keepBorder>
+    <animateIconify>no</animateIconify>
+  </theme>
+
+  <!-- No root menu: a right click on the background must do nothing rather than
+       offer a terminal and a logout to whoever is nearest the console. -->
+  <mouse>
+    <context name="Root">
+      <mousebind button="Right" action="Press"/>
+      <mousebind button="Middle" action="Press"/>
+    </context>
+  </mouse>
+
+  <keyboard>
+    <!-- Deliberately almost empty. Alt+F4 stays because a plugin editor that has
+         lost its close button still has to be closable. -->
+    <keybind key="A-F4">
+      <action name="Close"/>
+    </keybind>
+  </keyboard>
+
+  <applications>
+    <!-- The host itself owns the screen; plugin editors float above it. -->
+    <application name="carla" class="*">
+      <decor>no</decor>
+      <maximized>yes</maximized>
+      <layer>below</layer>
+    </application>
+  </applications>
+</openbox_config>

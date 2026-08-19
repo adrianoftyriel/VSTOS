@@ -1,0 +1,57 @@
+; Carla's settings, installed to ~/.config/falkTX/Carla2.conf for the session user.
+;
+; This is a Qt QSettings ini file. Only the values that need to differ from
+; Carla's own defaults are set here, because every key written by hand is a key
+; that can drift when Carla changes its defaults.
+;
+; Plugin search paths are the clearest example of what is deliberately absent.
+; Carla's built-in Linux defaults are already ~/.lv2:/usr/lib/lv2:/usr/local/lib/lv2
+; and ~/.vst3:/usr/lib/vst3, which is exactly where the archive puts the plugin
+; library and where vstos-install-fbksuppressor puts FBKSuppressor. Restating them
+; here would add a second place to keep correct and a QStringList quoting problem
+; to get wrong, in exchange for nothing.
+
+[Main]
+; The rack is the project folder, so "save" from the host lands somewhere that
+; survives and is backed up, not in the session user's home.
+ProjectFolder=/var/lib/vstos/projects
+; No "are you sure" dialog between an operator and a restart.
+ConfirmExit=false
+UseProTheme=true
+ProThemeColor=Black
+; The log pane is worth having on a machine with no terminal in front of it.
+ShowLogs=true
+
+[Engine]
+; JACK, not ALSA or PulseAudio. It is the only driver here that gives the host a
+; patchbay across all 48 of the console's channels rather than a fixed stereo pair.
+AudioDriver=JACK
+; ENGINE_PROCESS_MODE_MULTIPLE_CLIENTS. Each plugin becomes its own JACK client
+; with its own ports, which is what makes an instance on channel 7 patchable to
+; console channel 7 rather than to a slot in a fixed rack.
+ProcessMode=1
+; ENGINE_TRANSPORT_MODE_JACK.
+TransportMode=2
+; Mono plugins must stay mono. FBKSuppressor is a mono insert; forcing stereo
+; would give it a second channel it does not process and quietly double its cost.
+ForceStereo=false
+; Run plugins in-process. Bridging isolates a crash into a separate process, at
+; the cost of an extra buffer of latency per plugin - the wrong side of that trade
+; for a live insert.
+PreferPluginBridges=false
+PreferUiBridges=true
+ManageUIs=true
+MaxParameters=200
+UiBridgesTimeout=4000
+
+[OSC]
+; How a laptop or tablet running carla-control drives this machine when it has no
+; screen of its own. Fixed ports rather than random, because a control surface
+; that has to be told a new port after every restart is not a control surface.
+Enabled=@OSC_ENABLED@
+TCPEnabled=true
+TCPNumber=@OSC_PORT@
+TCPRandom=false
+UDPEnabled=true
+UDPNumber=@OSC_PORT@
+UDPRandom=false

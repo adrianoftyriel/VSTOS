@@ -1,0 +1,16 @@
+# The on-screen session. Not a desktop: an X server, a window manager for plugin
+# editors, and nothing else.
+#
+# X11 rather than Wayland, and the reason is the plugins. Almost every Linux audio
+# plugin editor - every LV2 X11 UI, every JUCE VST3, FBKSuppressor included - is an
+# X11 window that expects to be embedded in the host. Under a Wayland compositor
+# they reach the screen only through XWayland, if at all, and embedding is exactly
+# the part that works least well. The compositor would buy nothing here anyway:
+# there is one application and it is fullscreen.
+xserver-xorg-core
+xserver-xorg-video-all
+xserver-xorg-input-all
+xinit
+x11-xserver-utils
+openbox
+unclutter

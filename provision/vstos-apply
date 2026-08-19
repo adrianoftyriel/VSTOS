@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Re-apply the configuration after editing /etc/vstos/vstos.conf.
+#
+#   vstos-apply            re-render the generated files and restart the session
+#   vstos-apply --no-restart   re-render only
+#
+# Installed to /usr/bin/vstos-apply. It is the provisioner's later steps, run
+# again against the machine's own copy of the repository - which is why that copy
+# is kept at /usr/share/vstos/src rather than thrown away after the install.
+set -euo pipefail
+
+SRC="${VSTOS_SRC:-/usr/share/vstos/src}"
+restart=1
+
+[ "${1:-}" = "--no-restart" ] && restart=0
+
+[ -d "$SRC" ] || {
+    printf 'vstos-apply: no source tree at %s\n' "$SRC" >&2
+    printf 'Clone the VSTOS repository there, or set VSTOS_SRC.\n' >&2
+    exit 1
+}
+
+# Validate before touching anything. An invalid config caught here is a message;
+# caught after the units are restarted it is a rig that will not start.
+if ! VSTOS_CONF=/etc/vstos/vstos.conf bash -c '. /usr/lib/vstos/vstos-lib.sh; vstos_load_conf'; then
+    printf '\nvstos-apply: /etc/vstos/vstos.conf is not valid; nothing was changed.\n' >&2
+    exit 1
+fi
+
+# 40 onwards: everything that reads the configuration. The package and kernel
+# steps are skipped because nothing in vstos.conf changes them, and re-running
+# them would mean an apt transaction every time somebody adjusts a buffer size.
+"$SRC/provision/vstos-provision" --from 40
+
+if [ "$restart" -eq 1 ]; then
+    printf '\nRestarting the session...\n'
+    systemctl daemon-reload
+    systemctl restart vstos-jack.service
+    systemctl restart vstos-session.service
+    printf 'Done. vstos-status to check.\n'
+else
+    printf '\nFiles updated. systemctl restart vstos-jack vstos-session to apply.\n'
+fi

@@ -1,0 +1,39 @@
+[Unit]
+Description=VSTOS audio engine (JACK on the console's USB interface)
+Documentation=file:/usr/share/doc/vstos/OPERATING.md
+After=sound.target local-fs.target
+Wants=sound.target
+Before=vstos-session.service
+
+[Service]
+Type=simple
+User=@AUDIO_USER@
+Group=audio
+ExecStart=/usr/bin/vstos-jack
+
+# The engine restarting is normal, not exceptional: unplugging the console kills
+# jackd, and plugging it back in must bring the rig up again without a reboot.
+# RestartSec is short because the wait for the device happens inside vstos-jack,
+# where it can log what it is waiting for.
+Restart=always
+RestartSec=2
+
+# The three limits that make realtime audio possible. Without LimitRTPRIO the
+# engine silently drops to normal scheduling and xruns on every passing cron job;
+# without LimitMEMLOCK it can be paged out mid-period, which is an audible click.
+LimitRTPRIO=95
+LimitMEMLOCK=infinity
+LimitNICE=-19
+
+# Disk I/O from anything else must never delay an audio period.
+IOSchedulingClass=realtime
+IOSchedulingPriority=0
+
+# The last process on the machine that should be killed to free memory.
+OOMScoreAdjust=-900
+
+Environment=JACK_NO_AUDIO_RESERVATION=1
+Environment=JACK_NO_START_SERVER=1
+
+[Install]
+WantedBy=multi-user.target

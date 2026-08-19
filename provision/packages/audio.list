@@ -1,0 +1,35 @@
+# The audio engine and the plugin host.
+
+# JACK2. The engine, not a compatibility layer over one. Also supplies jack_lsp,
+# jack_connect, jack_wait, jack_samplerate and jack_bufsize, which is what
+# vstos-status is built out of - the separate jack-tools package is a different
+# set (jack-plumbing, jack-record) and is not needed here.
+jackd2
+# The console's USB MIDI ports, bridged into JACK MIDI.
+a2jmidid
+
+# Carla: LADSPA, DSSI, LV2, VST2, VST3 and SFZ in one host, with a JACK patchbay,
+# a headless mode that needs no display, and an OSC control surface that a laptop
+# can drive over the network. Nothing else in the archive does all four.
+carla
+carla-data
+
+# Carla is PyQt5. In headless mode it builds a QCoreApplication and never touches
+# a display, but the modules still have to be importable.
+python3-pyqt5
+python3-pyqt5.qtsvg
+python3-liblo
+
+# JUCE-built plugins - FBKSuppressor among them - link these at load time whether
+# or not an editor is ever opened. Without them the plugin fails to load on a
+# headless box and the failure looks like a missing plugin rather than a missing
+# library.
+libfreetype6
+libfontconfig1
+libx11-6
+libxext6
+libxrandr2
+libxinerama1
+libxcursor1
+libgl1
+libcurl4t64

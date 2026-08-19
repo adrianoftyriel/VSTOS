@@ -1,0 +1,24 @@
+[Unit]
+Description=VSTOS MIDI bridge (console USB MIDI into JACK)
+Documentation=file:/usr/share/doc/vstos/WING.md
+Requires=vstos-jack.service
+After=vstos-jack.service
+PartOf=vstos-jack.service
+
+[Service]
+Type=simple
+User=@AUDIO_USER@
+Group=audio
+
+# -e exports the hardware ALSA sequencer ports, which is where the console's USB
+# MIDI shows up. Without it a2jmidid bridges only software ports and the console's
+# footswitches and encoders reach nothing.
+ExecStart=/usr/bin/a2jmidid -e
+
+Restart=always
+RestartSec=2
+LimitRTPRIO=95
+LimitMEMLOCK=infinity
+
+[Install]
+WantedBy=multi-user.target

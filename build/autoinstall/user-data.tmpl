@@ -1,0 +1,70 @@
+#cloud-config
+# VSTOS unattended installation.
+#
+# Read by Ubuntu's installer (subiquity) when this file is placed at the root of
+# the ISO as autoinstall.yaml. It handles the parts that need a partitioner - disk
+# layout, base system, the admin account - and then hands over to the VSTOS
+# provisioner, which is the single source of truth for everything else.
+#
+# The division matters: nothing about how VSTOS is configured lives in here, so a
+# machine installed from this ISO and a machine provisioned by hand on top of
+# Ubuntu Server end up identical.
+autoinstall:
+  version: 1
+
+  # Refuse to run without someone having said so. `interactive-sections: []` plus
+  # this means the installer will still ask for confirmation before erasing a
+  # disk, which is the one question worth keeping on an image that people will
+  # boot on hardware that has something else on it.
+  interactive-sections: []
+
+  locale: @LOCALE@
+  keyboard:
+    layout: @KEYBOARD@
+
+  identity:
+    hostname: @HOSTNAME@
+    username: @ADMIN_USER@
+    # Hashed with `openssl passwd -6`. This is the administrator account for SSH
+    # and maintenance, not the account the plugin host runs as - that one is
+    # created by the provisioner, has no password and cannot log in.
+    password: "@ADMIN_PASSWORD_HASH@"
+
+  ssh:
+    install-server: true
+    allow-pw: true
+
+  storage:
+    layout:
+      name: lvm
+
+  # Deliberately minimal. Everything VSTOS needs is installed by the provisioner
+  # from lists that are also used when provisioning an existing machine, so there
+  # is exactly one place where the package set is decided.
+  packages:
+    - git
+    - curl
+    - ca-certificates
+
+  # No desktop, no snaps beyond what the base image insists on.
+  drivers:
+    install: false
+
+  late-commands:
+    # curtin runs these in the installer, not the target, so everything that
+    # should affect the installed system goes through `curtin in-target`.
+    - curtin in-target --target=/target -- mkdir -p /usr/share/vstos
+    - >-
+      curtin in-target --target=/target --
+      git clone --depth 1 --branch @VSTOS_BRANCH@ @VSTOS_REPO@ /usr/share/vstos/src
+    - >-
+      curtin in-target --target=/target --
+      env FBK_RELEASE=@FBK_RELEASE@ VSTOS_FORCE_NO_SYSTEMD=1
+      /usr/share/vstos/src/provision/vstos-provision
+
+    # The provisioner enables the session units, but it runs in a chroot where
+    # `systemctl daemon-reload` cannot work. Nothing to do here beyond making sure
+    # the first boot regenerates what it needs.
+    - curtin in-target --target=/target -- systemctl enable vstos-jack.service vstos-session.service
+
+  shutdown: reboot

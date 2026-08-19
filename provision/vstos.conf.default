@@ -1,0 +1,108 @@
+# VSTOS configuration.
+#
+# Installed to /etc/vstos/vstos.conf. Every unit, script and provisioning step
+# reads this file and nothing else, so a machine is described entirely by what is
+# in here. It is sourced by shell, so the syntax is KEY=value with no spaces.
+#
+# Changing a value takes effect on the next `vstos-apply` (which re-runs only the
+# steps that depend on what changed) or on the next boot.
+
+# ---------------------------------------------------------------------------
+# Audio interface
+# ---------------------------------------------------------------------------
+
+# How to find the console. VSTOS matches this, case-insensitively, against the
+# ALSA card id, the card's long name and the USB product string, in that order.
+# "WING" matches WING, WING Rack, WING Compact and WING Full alike, because they
+# all present the same 48x48 USB Audio Class 2 interface.
+#
+# Substring matching rather than a USB vendor:product pair is deliberate. The
+# published VID:PID for the WING family is not something this project can verify
+# first-hand, and a wrong ID fails closed and silently - the console is plugged
+# in, the light is on, and nothing appears. The product string is printed by the
+# device itself and is checkable in one command (`vstos-status`).
+AUDIO_DEVICE_MATCH="WING"
+
+# Explicit ALSA device, e.g. "hw:WING" or "hw:1". Set this and AUDIO_DEVICE_MATCH
+# is ignored. Use it for a device whose name does not match anything sensible, or
+# to pin a specific card when two are present.
+AUDIO_DEVICE=""
+
+# Fall back to any other USB audio device when the matched one is absent. Off by
+# default: on an appliance, coming up on the wrong interface is worse than not
+# coming up, because it looks like it worked.
+AUDIO_DEVICE_FALLBACK=0
+
+# ---------------------------------------------------------------------------
+# JACK engine
+# ---------------------------------------------------------------------------
+
+# The WING clocks its USB interface at its own global rate. This must match what
+# the console is set to (Setup -> Global -> Audio) or JACK will refuse to start.
+# 44100 and 48000 are the two the console offers; both are native rates for
+# FBKSuppressor.
+SAMPLE_RATE=48000
+
+# Frames per period. Round-trip latency is roughly PERIOD * NPERIODS / SAMPLE_RATE
+# in each direction.
+#
+#   128 x 3 @ 48k = 8.0 ms  - the default. Chosen because USB audio interrupt
+#                             timing, not the CPU, is what sets the floor here,
+#                             and 128 is the smallest period that has been
+#                             reported to run a 48x48 USB console without xruns.
+#    64 x 3 @ 48k = 4.0 ms  - try it; verify with `vstos-status xruns` over a
+#                             full rehearsal before trusting it to a show.
+#   256 x 3 @ 48k = 16.0 ms - the safe retreat if you see xruns.
+#
+# None of this is FBKSuppressor's latency, which is zero samples by construction.
+# It is the cost of leaving the console and coming back.
+PERIOD=128
+NPERIODS=3
+
+# Realtime priority for the JACK engine threads. Must be below the ceiling in
+# /etc/security/limits.d/95-vstos-audio.conf (95) and above anything else that
+# runs. Plugin processing inherits it.
+JACK_RT_PRIORITY=80
+
+# Bridge the console's USB MIDI ports into JACK MIDI, for footswitches, scene
+# recall and plugin parameter control from the console surface.
+MIDI_BRIDGE=1
+
+# ---------------------------------------------------------------------------
+# Plugin host session
+# ---------------------------------------------------------------------------
+
+# auto     - use the screen if one is attached at boot, otherwise run headless.
+# kiosk    - always start the on-screen host; fail loudly if it cannot.
+# headless - never start a screen, even if one is attached.
+#
+# `auto` degrades to headless rather than failing, so a console that boots with
+# the monitor unplugged still passes audio. That is the property that matters.
+UI_MODE=auto
+
+# The USB channel FBKSuppressor is inserted on in the shipped rack: the console
+# sends USB channel N to it and takes the result back on USB return N, which on
+# the WING is set up exactly like a hardware insert. See docs/WING.md.
+INSERT_CHANNEL=1
+
+# The rack that loads at boot. Ships with FBKSuppressor already instantiated on
+# the first input pair; see docs/OPERATING.md for saving your own.
+CARLA_PROJECT="/var/lib/vstos/projects/default.carxp"
+
+# Carla's OSC control surface, which is how `carla-control` on a laptop or tablet
+# drives a headless VSTOS box over the network. Port 22752 is Carla's own default
+# for both TCP and UDP.
+OSC_ENABLED=1
+OSC_PORT=22752
+
+# ---------------------------------------------------------------------------
+# System tuning
+# ---------------------------------------------------------------------------
+
+# performance pins every core to its top frequency. On an audio appliance the
+# power saving is worth nothing and the transition latency is worth avoiding.
+CPU_GOVERNOR=performance
+
+# Unprivileged account that owns the session. Not called "vstos" so that log
+# lines about the user and about the system are told apart at a glance.
+AUDIO_USER=audio-op

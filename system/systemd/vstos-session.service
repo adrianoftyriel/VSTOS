@@ -1,0 +1,38 @@
+[Unit]
+Description=VSTOS plugin host session
+Documentation=file:/usr/share/doc/vstos/OPERATING.md
+Requires=vstos-jack.service
+After=vstos-jack.service
+
+[Service]
+Type=simple
+User=@AUDIO_USER@
+Group=audio
+
+# PAMName gives the service a real logind session, which is what makes the user
+# the DRM master and lets Xorg.wrap start an X server without root. Without it,
+# kiosk mode fails with a permission error that reads like a driver problem.
+PAMName=login
+TTYPath=/dev/tty7
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+UtmpIdentifier=tty7
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+
+ExecStart=/usr/bin/vstos-session
+
+# The host coming back after a crash matters more than knowing it crashed. The
+# journal keeps the evidence; the audience does not need to hear the difference.
+Restart=always
+RestartSec=3
+
+LimitRTPRIO=95
+LimitMEMLOCK=infinity
+LimitNICE=-19
+OOMScoreAdjust=-800
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# Turn a minimal Ubuntu install into VSTOS.
+#
+#   ./provision/vstos-provision                 everything, in order
+#   ./provision/vstos-provision --dry-run       say what it would do
+#   ./provision/vstos-provision --step 70       just that step
+#   ./provision/vstos-provision --from 60       that step and everything after
+#   ./provision/vstos-provision --list          the steps and what they do
+#
+# Idempotent by design: running it twice changes nothing the second time, and it
+# never overwrites /etc/vstos/vstos.conf or a saved rack. That is what makes it
+# safe to re-run after editing the configuration, which is what vstos-apply does.
+#
+# Environment:
+#   FBK_RELEASE     pin FBKSuppressor to a tag (default: newest, pre-releases too)
+#   GITHUB_TOKEN    for a private FBKSuppressor repository
+#   VSTOS_OFFLINE=1 skip anything that needs the network beyond the archive
+#   VSTOS_SKIP_KERNEL=1  do not install a kernel (containers and CI only)
+set -euo pipefail
+
+VSTOS_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export VSTOS_SRC
+export VSTOS_DRY_RUN="${VSTOS_DRY_RUN:-0}"
+
+STEPS_DIR="$VSTOS_SRC/provision/steps"
+only=""
+from=""
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --dry-run) VSTOS_DRY_RUN=1; export VSTOS_DRY_RUN ;;
+        --step)    only="${2:?--step needs a number or name}"; shift ;;
+        --from)    from="${2:?--from needs a number or name}"; shift ;;
+        --list)
+            for s in "$STEPS_DIR"/[0-9][0-9]-*.sh; do
+                printf '  %-16s %s\n' "$(basename "$s" .sh)" \
+                    "$(sed -n '2s/^# //p' "$s")"
+            done
+            exit 0
+            ;;
+        --help|-h) sed -n '2,20p' "$0" | sed 's/^# \?//'; exit 0 ;;
+        *) printf 'unknown argument: %s (try --help)\n' "$1" >&2; exit 2 ;;
+    esac
+    shift
+done
+
+started=0
+failed=0
+
+for step in "$STEPS_DIR"/[0-9][0-9]-*.sh; do
+    name="$(basename "$step" .sh)"
+
+    if [ -n "$only" ] && [[ "$name" != "$only"* ]]; then
+        continue
+    fi
+    if [ -n "$from" ] && [ "$started" -eq 0 ]; then
+        if [[ "$name" == "$from"* ]]; then started=1; else continue; fi
+    fi
+
+    printf '\n\033[1m==> %s\033[0m\n' "$name"
+    # Each step runs in its own process. A step that exits non-zero stops the run
+    # rather than letting later steps build on a half-configured machine - except
+    # that the steps themselves decide what is fatal, and several deliberately
+    # warn instead (a missing plugin package, a failed FBKSuppressor download).
+    if ! bash "$step"; then
+        printf '\n\033[31m==> %s failed\033[0m\n' "$name" >&2
+        failed=1
+        break
+    fi
+done
+
+if [ "$failed" -ne 0 ]; then
+    printf '\nProvisioning stopped. Fix the problem above and re-run; steps are\n' >&2
+    printf 'idempotent, so there is no need to start from a clean machine.\n' >&2
+    exit 1
+fi
+
+if [ "$VSTOS_DRY_RUN" = "1" ]; then
+    printf '\n\033[1mDry run complete.\033[0m Nothing was changed.\n'
+else
+    printf '\n\033[1mVSTOS provisioned.\033[0m Reboot to start on the low-latency kernel.\n'
+    printf 'Then: vstos-status\n'
+fi

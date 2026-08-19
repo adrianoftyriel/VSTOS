@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# One command that answers "why is there no sound".
+#
+#   vstos-status          everything
+#   vstos-status cards    what ALSA can see, and which one VSTOS picked
+#   vstos-status xruns    the number that decides whether PERIOD is low enough
+#   vstos-status ports    the JACK graph, i.e. what is actually connected
+#   vstos-status plugins  the installed plugin library
+set -euo pipefail
+
+# shellcheck source=vstos-lib.sh
+. /usr/lib/vstos/vstos-lib.sh
+vstos_load_conf
+
+hr() { printf '\n\033[1m%s\033[0m\n' "$*"; }
+ok() { printf '  \033[32m*\033[0m %s\n' "$*"; }
+no() { printf '  \033[31mx\033[0m %s\n' "$*"; }
+
+show_cards() {
+    hr "Sound cards"
+    local found=0 idx id driver long
+    while IFS=$'\t' read -r idx id driver _ long; do
+        found=1
+        printf '  %s [%s] %s - %s\n' "$idx" "$id" "$driver" "$long"
+    done < <(vstos_list_cards)
+    [ "$found" = 1 ] || no "no sound cards at all - is the console powered on and the USB cable in?"
+
+    hr "Selected interface"
+    local device
+    if device="$(vstos_resolve_device)"; then
+        ok "$device  (matching '${AUDIO_DEVICE_MATCH}')"
+    else
+        no "nothing matches '${AUDIO_DEVICE_MATCH}'"
+        no "set AUDIO_DEVICE in $VSTOS_CONF to pin a card by hand"
+    fi
+}
+
+show_engine() {
+    hr "Engine"
+    printf '  configured: %s Hz, %s x %s frames\n' "$SAMPLE_RATE" "$PERIOD" "$NPERIODS"
+    if JACK_NO_START_SERVER=1 jack_wait -c >/dev/null 2>&1; then
+        ok "JACK is running"
+        local rate bufsize
+        rate="$(jack_samplerate 2>/dev/null || echo '?')"
+        bufsize="$(jack_bufsize 2>/dev/null || echo '?')"
+        printf '  actual:     %s Hz, %s frames per period\n' "$rate" "$bufsize"
+        if [ "$rate" != "?" ] && [ "$rate" != "$SAMPLE_RATE" ]; then
+            no "the running rate is not the configured one; the console's global rate wins"
+        fi
+    else
+        no "JACK is not running - systemctl status vstos-jack"
+    fi
+}
+
+show_xruns() {
+    hr "Xruns"
+    # An xrun is a period the engine missed. One at load time is noise; a
+    # recurring count during a rehearsal is PERIOD being too low for this
+    # machine's USB timing, and the fix is to raise it in /etc/vstos/vstos.conf.
+    local n
+    n="$(journalctl -u vstos-jack --since '-6h' --no-pager 2>/dev/null | grep -ci 'xrun' || true)"
+    if [ "${n:-0}" -eq 0 ]; then
+        ok "none logged in the last 6 hours"
+    else
+        no "$n xrun lines in the last 6 hours at PERIOD=$PERIOD"
+        no "raise PERIOD to $((PERIOD * 2)) in $VSTOS_CONF and run vstos-apply"
+    fi
+}
+
+show_ports() {
+    hr "JACK graph"
+    if ! JACK_NO_START_SERVER=1 jack_wait -c >/dev/null 2>&1; then
+        no "JACK is not running"
+        return
+    fi
+    jack_lsp -c 2>/dev/null || no "could not read the port list"
+}
+
+show_plugins() {
+    hr "Plugin library"
+    local lv2 vst3
+    lv2="$(vstos_count_bundles lv2 /usr/lib/lv2 /usr/local/lib/lv2)"
+    vst3="$(vstos_count_bundles vst3 /usr/lib/vst3 /usr/local/lib/vst3)"
+    printf '  %s LV2 bundles, %s VST3 bundles\n' "$lv2" "$vst3"
+    if [ -e /usr/lib/vst3/FBKSuppressor.vst3 ]; then
+        ok "FBKSuppressor $(cat /usr/lib/vstos/fbksuppressor.version 2>/dev/null || echo 'installed')"
+    else
+        no "FBKSuppressor is not installed - run vstos-install-fbksuppressor"
+    fi
+}
+
+show_session() {
+    hr "Session"
+    printf '  UI_MODE=%s\n' "$UI_MODE"
+    local u
+    for u in vstos-jack vstos-a2jmidi vstos-session; do
+        if systemctl is-active --quiet "$u" 2>/dev/null; then
+            ok "$u active"
+        elif systemctl is-enabled --quiet "$u" 2>/dev/null; then
+            no "$u enabled but not running"
+        fi
+    done
+    if [ "${OSC_ENABLED:-1}" = "1" ]; then
+        printf '  remote control: carla-control osc.tcp://%s:%s/Carla\n' \
+            "$(hostname -I 2>/dev/null | awk '{print $1}')" "$OSC_PORT"
+    fi
+}
+
+case "${1:-all}" in
+    cards)   show_cards ;;
+    engine)  show_engine ;;
+    xruns)   show_xruns ;;
+    ports)   show_ports ;;
+    plugins) show_plugins ;;
+    session) show_session ;;
+    all)     show_cards; show_engine; show_xruns; show_plugins; show_session; echo ;;
+    *)       vstos_die "usage: vstos-status [cards|engine|xruns|ports|plugins|session|all]" ;;
+esac

@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Start the JACK audio server on the console's USB interface.
+#
+# Run under systemd as vstos-jack.service, and by hand for debugging. Runs in the
+# foreground so systemd owns the process rather than tracking a daemonised child.
+set -euo pipefail
+
+# shellcheck source=vstos-lib.sh
+. /usr/lib/vstos/vstos-lib.sh
+vstos_load_conf
+
+# The console can take several seconds to enumerate 48 in and 48 out, and it is
+# routinely switched on at the same moment as the host. Waiting is the difference
+# between "boots reliably" and "boots if you power things up in the right order".
+if ! device="$(vstos_wait_for_device 45)"; then
+    vstos_log "no audio device matching '${AUDIO_DEVICE_MATCH}' after 45s"
+    vstos_log "cards present:"
+    vstos_list_cards | while IFS=$'\t' read -r idx id driver _ long; do
+        vstos_log "  $idx [$id] $driver - $long"
+    done
+    vstos_die "refusing to start on an interface that is not the console (see AUDIO_DEVICE_FALLBACK)"
+fi
+
+vstos_log "starting JACK on $device at ${SAMPLE_RATE} Hz, ${PERIOD}x${NPERIODS} frames"
+vstos_log "round trip is $(awk -v p="$PERIOD" -v n="$NPERIODS" -v r="$SAMPLE_RATE" \
+    'BEGIN { printf "%.1f", 2 * p * n * 1000 / r }') ms in and out of the console"
+
+# Ask no one for permission to open the card. The D-Bus device reservation
+# protocol exists to arbitrate between JACK and PulseAudio; there is no
+# PulseAudio here, and on a headless boot there is no session bus to ask.
+export JACK_NO_AUDIO_RESERVATION=1
+export JACK_NO_START_SERVER=1
+
+# Channel counts are deliberately not pinned. jackd takes the device's maximum,
+# which is 48x48 on every WING variant, and a hard-coded 48 would turn a console
+# in a reduced-channel USB mode into a server that will not start at all.
+#
+# The argument order below is load-bearing, not stylistic. jackd parses options in
+# two scopes, and the same letters mean different things in each:
+#
+#   before -d alsa:  -n is --name (server name), -p is --port-max
+#   after  -d alsa:  -n is nperiods,             -p is period size
+#
+# Writing -p 128 before the driver silently asks for a 128-port server at whatever
+# the card's default period is, which starts cleanly and sounds wrong. Everything
+# from `-d alsa` onwards belongs to the backend.
+exec jackd \
+    --realtime --realtime-priority "$JACK_RT_PRIORITY" \
+    --timeout 2000 \
+    -d alsa \
+        -d "$device" \
+        -r "$SAMPLE_RATE" \
+        -p "$PERIOD" \
+        -n "$NPERIODS" \
+        -D

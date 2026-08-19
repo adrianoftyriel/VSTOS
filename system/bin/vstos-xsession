@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# The X session, installed to /usr/lib/vstos/vstos-xsession and run by xinit.
+#
+# Openbox is here for one reason: plugin editors are separate top-level X windows
+# and something has to let you raise, move and close them. Without a window
+# manager the first plugin you open lands at 0,0 under the host window with no way
+# to move it. It is a window manager, not a desktop - no panel, no menu, no icons.
+set -euo pipefail
+
+# shellcheck source=vstos-lib.sh
+. /usr/lib/vstos/vstos-lib.sh
+vstos_load_conf
+
+# Never blank the screen. A console that goes dark thirty minutes into a service
+# and needs a keypress to come back is a fault, not a power saving.
+xset s off
+xset s noblank
+xset -dpms
+
+xsetroot -solid "#0e0e12"
+
+# Hide the pointer when it has not moved, which matters on a touchscreen where
+# there is no pointer to speak of and the arrow just sits there.
+if command -v unclutter >/dev/null 2>&1; then
+    unclutter -idle 3 -root &
+fi
+
+# --config-file rather than letting openbox find /etc/xdg/openbox/rc.xml: that
+# file belongs to the openbox package, and VSTOS does not overwrite files dpkg
+# owns. See provision/steps/70-session.sh.
+openbox --config-file /usr/share/vstos/openbox-rc.xml &
+openbox_pid=$!
+
+# Qt on X11. Named explicitly so that a future Wayland package appearing on the
+# system cannot change which platform plugin Carla picks up.
+export QT_QPA_PLATFORM=xcb
+
+# When the host exits, tear the session down rather than leaving a bare X server
+# with a grey root window and no way in.
+trap 'kill "$openbox_pid" 2>/dev/null || true' EXIT
+
+exec carla "$CARLA_PROJECT"

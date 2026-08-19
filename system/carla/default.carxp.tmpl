@@ -1,0 +1,64 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE CARLA-PROJECT>
+<!--
+  The rack VSTOS loads at boot.
+
+  FBKSuppressor is a mono insert: one main input, one output, plus a sidechain
+  input that is disabled by default and reserved for feeding it the PA send. It is
+  wired here across a single pair of USB channels, so on the console it behaves
+  exactly like an outboard insert on that channel - send on USB @INSERT_CHANNEL@,
+  return on USB @INSERT_CHANNEL@.
+
+  One instance, not forty-eight. Each costs about 3% of a core, so the whole
+  console's worth would fit on a modern CPU, but a rack you did not ask for is a
+  rack you have to reason about at soundcheck. Add instances for the channels that
+  need them; docs/OPERATING.md has the two commands.
+
+  No <Chunk> element here on purpose. That is where Carla stores a VST3's saved
+  state, and omitting it means the plugin comes up at its own defaults rather than
+  at whatever a particular build happened to serialise. Once you save your own
+  rack over this one, Carla writes the chunk itself.
+
+  @INSERT_CHANNEL@ is substituted from /etc/vstos/vstos.conf at provisioning time.
+-->
+<CARLA-PROJECT VERSION='2.5'>
+ <EngineSettings>
+  <ForceStereo>false</ForceStereo>
+  <PreferPluginBridges>false</PreferPluginBridges>
+  <PreferUiBridges>true</PreferUiBridges>
+  <UIsAlwaysOnTop>true</UIsAlwaysOnTop>
+  <MaxParameters>200</MaxParameters>
+  <UIBridgesTimeout>4000</UIBridgesTimeout>
+ </EngineSettings>
+
+ <Transport>
+  <BeatsPerMinute>120</BeatsPerMinute>
+ </Transport>
+
+ <!-- FBKSuppressor -->
+ <Plugin>
+  <Info>
+   <Type>VST3</Type>
+   <Name>FBKSuppressor</Name>
+   <Binary>/usr/lib/vst3/FBKSuppressor.vst3</Binary>
+   <Label>FBKSuppressor</Label>
+  </Info>
+
+  <Data>
+   <Active>Yes</Active>
+   <ControlChannel>1</ControlChannel>
+   <Options>0x9</Options>
+  </Data>
+ </Plugin>
+
+ <ExternalPatchbay>
+  <Connection>
+   <Source>system:capture_@INSERT_CHANNEL@</Source>
+   <Target>FBKSuppressor:input_1</Target>
+  </Connection>
+  <Connection>
+   <Source>FBKSuppressor:output</Source>
+   <Target>system:playback_@INSERT_CHANNEL@</Target>
+  </Connection>
+ </ExternalPatchbay>
+</CARLA-PROJECT>

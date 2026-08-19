@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+# Install FBKSuppressor from its GitHub releases.
+#
+#   vstos-install-fbksuppressor                 newest release, pre-releases included
+#   vstos-install-fbksuppressor v0.1.0          a specific tag
+#   vstos-install-fbksuppressor --from-source   build it here instead
+#
+# Run at provisioning time and again whenever you want to move to a newer build.
+# It is idempotent: installing a version that is already installed does nothing.
+set -euo pipefail
+
+REPO="${FBK_REPO:-adrianoftyriel/FBKSuppressor}"
+VST3_DIR="${FBK_VST3_DIR:-/usr/lib/vst3}"
+BIN_DIR="${FBK_BIN_DIR:-/usr/bin}"
+STAMP="${FBK_STAMP:-/usr/lib/vstos/fbksuppressor.version}"
+API="https://api.github.com/repos/${REPO}"
+
+log()  { printf 'fbk: %s\n' "$*" >&2; }
+die()  { printf 'fbk: error: %s\n' "$*" >&2; exit 1; }
+
+api() {
+    # A token is optional for a public repository and required for a private one.
+    # -f so an HTTP error is a failure rather than a JSON error document that the
+    # parser below would then report as "no releases found".
+    if [ -n "${GITHUB_TOKEN:-}" ]; then
+        curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+             -H "Accept: application/vnd.github+json" "$1"
+    else
+        curl -fsSL -H "Accept: application/vnd.github+json" "$1"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+
+install_from_release() {
+    local want="${1:-}" json
+
+    # Deliberately not /releases/latest. That endpoint ignores pre-releases, and
+    # FBKSuppressor publishes pre-releases from `dev` and releases from `main` -
+    # so on a project that has not cut a stable release yet, /latest is a 404 and
+    # "install the most recent release" has to mean the newest of either kind.
+    log "asking GitHub for releases of ${REPO}"
+    json="$(api "${API}/releases?per_page=20")" \
+        || die "could not reach the GitHub API. Behind a proxy, export HTTPS_PROXY; for a private repository, export GITHUB_TOKEN."
+
+    local tag url sums_url
+    read -r tag url sums_url < <(WANT="$want" python3 -c '
+import json, os, sys
+rels = json.load(sys.stdin)
+want = os.environ.get("WANT") or ""
+if want:
+    rels = [r for r in rels if r["tag_name"] == want]
+else:
+    rels = [r for r in rels if not r.get("draft")]
+    rels.sort(key=lambda r: r["published_at"] or r["created_at"], reverse=True)
+if not rels:
+    sys.exit(1)
+r = rels[0]
+assets = {a["name"]: a["browser_download_url"] for a in r.get("assets", [])}
+linux = [n for n in assets if n.endswith("-Linux.zip")]
+if not linux:
+    sys.exit(2)
+print(r["tag_name"], assets[linux[0]], assets.get("SHA256SUMS.txt", "-"))
+' <<<"$json") || die "no release with a Linux build was found${want:+ for tag $want}"
+
+    if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$tag" ]; then
+        log "$tag is already installed"
+        return 0
+    fi
+
+    local tmp
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' RETURN
+
+    log "downloading $tag"
+    curl -fsSL -o "$tmp/fbk.zip" "$url" || die "download failed: $url"
+
+    # Verify against the checksums the release publishes. Not a defence against a
+    # compromised release - the same hand would write both - but it does catch the
+    # thing that actually happens, which is a truncated download over a venue's
+    # network turning into a plugin that loads and then crashes the host.
+    if [ "$sums_url" != "-" ]; then
+        curl -fsSL -o "$tmp/SHA256SUMS.txt" "$sums_url" || die "could not fetch SHA256SUMS.txt"
+        local want_sum got_sum base
+        base="$(basename "$url")"
+        want_sum="$(awk -v f="$base" '$2 == f || $2 == "*"f { print $1 }' "$tmp/SHA256SUMS.txt" | head -1)"
+        if [ -n "$want_sum" ]; then
+            got_sum="$(sha256sum "$tmp/fbk.zip" | cut -d' ' -f1)"
+            [ "$want_sum" = "$got_sum" ] || die "checksum mismatch for $base (expected $want_sum, got $got_sum)"
+            log "checksum verified"
+        else
+            log "warning: $base is not listed in SHA256SUMS.txt; skipping verification"
+        fi
+    else
+        log "warning: the release publishes no SHA256SUMS.txt; skipping verification"
+    fi
+
+    unzip -q -o "$tmp/fbk.zip" -d "$tmp/x" || die "could not unpack the release archive"
+    install_artefacts "$tmp/x" "$tag"
+}
+
+install_from_source() {
+    local src="${FBK_SRC:-/usr/src/FBKSuppressor}"
+    command -v cmake >/dev/null || die "cmake is needed to build from source"
+    [ -d "$src" ] || die "no source tree at $src (set FBK_SRC, or clone the repository there)"
+
+    log "building from source in $src"
+    cmake -S "$src" -B "$src/build" -DCMAKE_BUILD_TYPE=Release \
+        -DFBK_BUILD_PLUGIN=ON -DFBK_BUILD_TESTS=ON >/dev/null
+    cmake --build "$src/build" --parallel >/dev/null
+
+    # The DSP suite is the project's own gate on whether the build is sound. A
+    # plugin that fails it has no business being installed on something that will
+    # be pointed at a congregation.
+    log "running the DSP suite"
+    "$src/build/tests/fbk_tests" >/dev/null || die "the DSP test suite failed; not installing"
+
+    local version
+    version="$(sed -n 's/^project(FBKSuppressor[[:space:]]\+VERSION[[:space:]]\+\([0-9.]*\).*/\1/p' \
+        "$src/CMakeLists.txt" | head -1)"
+    install_artefacts "$src/build/src/plugin/FBKSuppressor_artefacts/Release" "${version:-source}+source"
+}
+
+install_artefacts() {
+    local root="$1" tag="$2" vst3 standalone
+
+    vst3="$(find "$root" -maxdepth 3 -name 'FBKSuppressor.vst3' -print -quit)"
+    [ -n "$vst3" ] || die "no FBKSuppressor.vst3 found under $root"
+
+    # A zero-byte or truncated binary inside a well-formed bundle is the failure
+    # mode that looks like a Carla bug rather than a download problem, so check for
+    # it here where the message can say what actually went wrong.
+    local so
+    so="$(find "$vst3" -name '*.so' -size +1k -print -quit)"
+    [ -n "$so" ] || die "the VST3 bundle in $root contains no usable shared object"
+
+    install -d "$VST3_DIR"
+    rm -rf "${VST3_DIR:?}/FBKSuppressor.vst3"
+    cp -r "$vst3" "$VST3_DIR/"
+    log "installed $VST3_DIR/FBKSuppressor.vst3"
+
+    # The standalone talks to JACK directly, which makes it the way to test the
+    # console's routing without the host in the path.
+    standalone="$(find "$root" -maxdepth 3 -type f -name 'FBKSuppressor' -perm -u+x -print -quit)"
+    if [ -n "$standalone" ]; then
+        install -m 0755 "$standalone" "$BIN_DIR/fbksuppressor"
+        log "installed $BIN_DIR/fbksuppressor (standalone)"
+    fi
+
+    install -d "$(dirname "$STAMP")"
+    printf '%s\n' "$tag" > "$STAMP"
+    log "FBKSuppressor $tag installed"
+}
+
+# ---------------------------------------------------------------------------
+
+case "${1:-}" in
+    --from-source) install_from_source ;;
+    --help|-h)     sed -n '2,9p' "$0" | sed 's/^# \?//' ;;
+    *)             install_from_release "${1:-}" ;;
+esac

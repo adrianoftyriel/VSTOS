@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# Start the plugin host and keep it in the foreground for systemd.
+#
+# There is exactly one session on this machine and it is a plugin host. There is
+# no display manager, no desktop, no session bus full of helpers - just an X
+# server whose only client is Carla, or no X server at all.
+set -euo pipefail
+
+# shellcheck source=vstos-lib.sh
+. /usr/lib/vstos/vstos-lib.sh
+vstos_load_conf
+
+# ---------------------------------------------------------------------------
+
+# A DRM connector reporting "connected" means a cable with something live on the
+# other end. Testing for /dev/dri/card0 instead would be wrong: the node exists on
+# any machine with a GPU, monitor or not, so `auto` would choose kiosk on every
+# rack-mounted box and then fail to find a screen.
+#
+# The match is anchored because "disconnected" contains "connected".
+vstos_display_attached() {
+    local status
+    for status in /sys/class/drm/*/status; do
+        [ -r "$status" ] || continue
+        [ "$(cat "$status")" = "connected" ] && return 0
+    done
+    return 1
+}
+
+vstos_wait_for_jack() {
+    local timeout="${1:-30}"
+    # jack_wait polls the server rather than starting one, which is what we want:
+    # if JACK is not coming up, that is vstos-jack.service's failure to report,
+    # not something for the host to paper over by starting a second server.
+    JACK_NO_START_SERVER=1 jack_wait -w -t "$timeout" >/dev/null 2>&1
+}
+
+run_headless() {
+    vstos_log "starting the plugin host headless"
+    # -n makes Carla build a QCoreApplication rather than a QApplication, so this
+    # needs no X server, no display and no offscreen platform plugin. OSC stays
+    # up, which is how carla-control drives it from a laptop.
+    exec carla -n "$CARLA_PROJECT"
+}
+
+run_kiosk() {
+    vstos_log "starting the plugin host on the attached screen"
+    # -nolisten tcp: nothing outside this machine has any business talking to
+    # this X server. Remote control is OSC, which is authenticated by being on
+    # your own network and nothing else - see docs/OPERATING.md.
+    exec xinit /usr/lib/vstos/vstos-xsession -- :0 vt7 -nolisten tcp -novtswitch
+}
+
+# ---------------------------------------------------------------------------
+
+if ! vstos_wait_for_jack 45; then
+    vstos_die "JACK did not come up within 45s; check 'systemctl status vstos-jack'"
+fi
+
+case "$UI_MODE" in
+    headless)
+        run_headless
+        ;;
+    kiosk)
+        # Explicitly asked for: no silent downgrade. If someone configured a
+        # screen and there is no screen, they need to be told, not worked around.
+        run_kiosk
+        ;;
+    auto)
+        if ! vstos_display_attached; then
+            vstos_log "no connected display; running headless"
+            run_headless
+        fi
+        # Kiosk in a subshell so a failing X server is recoverable. A console that
+        # passes audio with a blank screen is a working console; one that refuses
+        # to start the host because a monitor is faulty is not.
+        vstos_log "display attached; trying the on-screen host"
+        if ! ( run_kiosk ); then
+            vstos_warn "the on-screen host failed to start; falling back to headless"
+            run_headless
+        fi
+        ;;
+esac
