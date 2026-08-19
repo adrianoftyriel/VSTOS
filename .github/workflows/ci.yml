@@ -41,6 +41,15 @@ jobs:
       # the whole point of the exercise. It runs as root inside a throwaway
       # container, not on the runner.
       options: --user root
+    defaults:
+      run:
+        # Inside a container GitHub falls back to `sh -e` rather than bash, and
+        # ubuntu:24.04's /bin/sh is dash. Anything here that sources
+        # /usr/lib/vstos/vstos-lib.sh - which is bash, and says so - then dies on
+        # the first array with a syntax error, on a runner, having passed
+        # everywhere else. Pin the shell for the whole job rather than per step,
+        # so a step added later cannot reintroduce it.
+        shell: bash
     steps:
       - name: Install checkout dependencies
         run: |
