@@ -22,6 +22,11 @@ StandardInput=tty
 StandardOutput=journal
 StandardError=journal
 
+# libjack will start a server of its own if it cannot find one, on whatever the
+# default device is. That would be a second engine on the wrong card, running
+# alongside the real one, and it looks like the rig working until you listen.
+Environment=JACK_NO_START_SERVER=1
+
 ExecStart=/usr/bin/vstos-session
 
 # The host coming back after a crash matters more than knowing it crashed. The

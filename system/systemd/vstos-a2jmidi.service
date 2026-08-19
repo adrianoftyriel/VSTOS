@@ -13,6 +13,11 @@ Group=audio
 # -e exports the hardware ALSA sequencer ports, which is where the console's USB
 # MIDI shows up. Without it a2jmidid bridges only software ports and the console's
 # footswitches and encoders reach nothing.
+# libjack will start a server of its own if it cannot find one, on whatever the
+# default device is. That would be a second engine on the wrong card, running
+# alongside the real one, and it looks like the rig working until you listen.
+Environment=JACK_NO_START_SERVER=1
+
 ExecStart=/usr/bin/a2jmidid -e
 
 Restart=always

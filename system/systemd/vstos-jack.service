@@ -32,8 +32,13 @@ IOSchedulingPriority=0
 # The last process on the machine that should be killed to free memory.
 OOMScoreAdjust=-900
 
+# Ask no one for permission to open the card. The D-Bus device reservation
+# protocol arbitrates between JACK and PulseAudio; there is no PulseAudio here,
+# and on a headless boot there is no session bus to ask.
+#
+# JACK_NO_START_SERVER is deliberately not set here: it is read by libjack, in
+# clients, and jackd is not a client. It belongs on the two units below that are.
 Environment=JACK_NO_AUDIO_RESERVATION=1
-Environment=JACK_NO_START_SERVER=1
 
 [Install]
 WantedBy=multi-user.target

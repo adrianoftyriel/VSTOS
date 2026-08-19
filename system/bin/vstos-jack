@@ -29,7 +29,6 @@ vstos_log "round trip is $(awk -v p="$PERIOD" -v n="$NPERIODS" -v r="$SAMPLE_RAT
 # protocol exists to arbitrate between JACK and PulseAudio; there is no
 # PulseAudio here, and on a headless boot there is no session bus to ask.
 export JACK_NO_AUDIO_RESERVATION=1
-export JACK_NO_START_SERVER=1
 
 # Channel counts are deliberately not pinned. jackd takes the device's maximum,
 # which is 48x48 on every WING variant, and a hard-coded 48 would turn a console
