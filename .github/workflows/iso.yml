@@ -50,21 +50,39 @@ jobs:
       - name: Checksum
         run: sha256sum vstos-installer.iso | tee vstos-installer.iso.sha256
 
-      # The ISO is larger than the artifact limit is comfortable with, so a tagged
-      # build publishes a release and a manual build leaves only the checksum
-      # behind as evidence that it built.
-      - name: Publish the release
+      # The ISO is NOT attached to the release: a GitHub release asset is capped
+      # at 2 GB and an Ubuntu-based installer image is comfortably past it, so the
+      # upload would fail rather than merely being large. The image goes to a
+      # workflow artifact, which has no such per-file cap, and the release carries
+      # its checksum plus the one command that rebuilds it.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vstos-installer-iso
+          path: vstos-installer.iso
+          retention-days: 14
+          compression-level: 0   # an ISO is already compressed; zipping it again buys nothing
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vstos-installer-iso-checksum
+          path: vstos-installer.iso.sha256
+          if-no-files-found: error
+
+      - name: Attach the checksum to the release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" \
-            --title "VSTOS ${GITHUB_REF_NAME}" \
-            --notes "Unattended installer ISO. Write it to a USB stick with \`dd\`, boot the target, and it installs itself and reboots into the plugin host. It erases the disk it installs to." \
-            vstos-installer.iso vstos-installer.iso.sha256
-
-      - uses: actions/upload-artifact@v4
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-        with:
-          name: vstos-iso-checksum
-          path: vstos-installer.iso.sha256
+          set -euo pipefail
+          # The release itself is created by the CI workflow's publish job; this
+          # only adds the ISO checksum to it, and waits for it to exist rather
+          # than racing it.
+          for _ in $(seq 1 30); do
+            gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 && break
+            sleep 10
+          done
+          gh release upload "${GITHUB_REF_NAME}" vstos-installer.iso.sha256 --clobber
+          gh release view "${GITHUB_REF_NAME}" --json body --jq .body > existing-notes.md
+          cat existing-notes.md build/iso-release-note.md > combined-notes.md
+          gh release edit "${GITHUB_REF_NAME}" --notes-file combined-notes.md

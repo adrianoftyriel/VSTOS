@@ -268,6 +268,66 @@ t_package_lists() {
     fi
 }
 
+t_version() {
+    local v
+    v="$(tr -d '[:space:]' < VERSION)"
+    if [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        ok "VERSION is a plain semver ($v)"
+    else
+        bad "VERSION is not MAJOR.MINOR.PATCH: '$v'"
+    fi
+}
+
+t_bundle() {
+    local out
+    out="$(mktemp -d)"
+    if ! ./build/build-bundle.sh --tag v9.9.9-test --out "$out" >/dev/null 2>&1; then
+        bad "the bundle does not build"
+        rm -rf "$out"; return
+    fi
+    ok "the bundle builds"
+
+    local tgz="$out/vstos-9.9.9-test.tar.gz"
+    if [ ! -f "$tgz" ]; then
+        bad "the bundle is not named after its tag"
+        rm -rf "$out"; return
+    fi
+    ok "the bundle is named after its tag"
+
+    # A GitHub release asset is capped at 2 GB. The bundle exists precisely
+    # because an ISO is not, so it had better stay small.
+    local bytes
+    bytes="$(stat -c %s "$tgz")"
+    if [ "$bytes" -lt 5000000 ]; then
+        ok "the bundle is small ($((bytes / 1024)) kB)"
+    else
+        bad "the bundle is $((bytes / 1024 / 1024)) MB - something large got in"
+    fi
+
+    local listing
+    listing="$(tar tzf "$tgz")"
+    local want missing=""
+    for want in provision/vstos-provision system/bin/vstos-lib.sh build/build-iso.sh                 docs/WING.md INSTALL.md RELEASE VERSION; do
+        grep -q "/$want\$" <<<"$listing" || missing="$missing $want"
+    done
+    if [ -z "$missing" ]; then
+        ok "the bundle carries everything a target machine needs"
+    else
+        bad "the bundle is missing:$missing"
+    fi
+
+    # Developing VSTOS and running it are different jobs. Shipping the suite
+    # invites someone to run it on an appliance and wonder why an audio box is
+    # asking for a shell linter.
+    if grep -qE "/(tests|\.github)/" <<<"$listing"; then
+        bad "the bundle ships the test suite or CI configuration"
+    else
+        ok "the bundle leaves the test suite and CI behind"
+    fi
+
+    rm -rf "$out"
+}
+
 t_carla_loads_boot_rack() {
     command -v carla >/dev/null || { skip "carla is not installed"; return; }
     [ -e /usr/lib/vst3/FBKSuppressor.vst3 ] || { skip "FBKSuppressor is not installed"; return; }
@@ -282,13 +342,20 @@ t_carla_loads_boot_rack() {
 
     local work started=0
     work="$(mktemp -d)"
-    if ! JACK_NO_START_SERVER=1 jack_wait -c >/dev/null 2>&1; then
+    # shellcheck source=../system/bin/vstos-lib.sh
+    . system/bin/vstos-lib.sh
+    if ! vstos_jack_running; then
         JACK_NO_AUDIO_RESERVATION=1 jackd -d dummy -r 48000 -p 128 >"$work/jackd.log" 2>&1 &
         started=$!
         local i=0
-        until JACK_NO_START_SERVER=1 jack_wait -c >/dev/null 2>&1 || [ "$i" -ge 10 ]; do
+        until vstos_jack_running || [ "$i" -ge 15 ]; do
             sleep 1; i=$((i+1))
         done
+    fi
+    if ! vstos_jack_running; then
+        skip "could not start a dummy JACK server here: $(tail -2 "$work/jackd.log" 2>/dev/null | tr '\n' ' ')"
+        [ "$started" != 0 ] && kill "$started" 2>/dev/null
+        rm -rf "$work"; return
     fi
 
     python3 provision/steps/render-template.py \

@@ -77,3 +77,190 @@ jobs:
           echo "LV2:  $(vstos_count_bundles lv2 /usr/lib/lv2 /usr/local/lib/lv2)"
           echo "VST3: $(vstos_count_bundles vst3 /usr/lib/vst3 /usr/local/lib/vst3)"
           ls /usr/lib/lv2 | head -40
+
+  # ---------------------------------------------------------------------------
+  # The artefact a release carries.
+  #
+  # Not an ISO. A GitHub release asset is capped at 2 GB and an Ubuntu-based
+  # installer image is well past that, so an ISO cannot be attached to a release
+  # at all. The bundle is the same provisioner the ISO runs, at about 50 kB, and
+  # it contains build/build-iso.sh - so anyone who wants the image builds it in
+  # one command from the exact code that was tested.
+  bundle:
+    name: Build the provisioning bundle
+    needs: [tests, provision]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out the tag
+        id: meta
+        run: |
+          set -euo pipefail
+          version="$(tr -d '[:space:]' < VERSION)"
+          [ -n "$version" ] || { echo "::error::VERSION is empty"; exit 1; }
+
+          # dev publishes a pre-release on every push, tagged with the run number
+          # so it needs no bump; main publishes the release named by VERSION.
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then
+            tag="v${version}"
+            prerelease=false
+          else
+            tag="v${version}-dev.${GITHUB_RUN_NUMBER}"
+            prerelease=true
+          fi
+
+          {
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+          echo "Building $tag"
+
+      - name: Build
+        run: ./build/build-bundle.sh --tag "${{ steps.meta.outputs.tag }}" --out dist
+
+      # Prove the tarball is installable, not merely well-formed. Extract it
+      # somewhere with no connection to this checkout and run the provisioner out
+      # of it - which is exactly what someone who downloads it will do.
+      - name: Install from the bundle
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          VSTOS_SKIP_KERNEL: "1"
+          VSTOS_FORCE_NO_SYSTEMD: "1"
+          VSTOS_OFFLINE: "1"
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/bundle && tar -C /tmp/bundle -xzf dist/*.tar.gz
+          cd /tmp/bundle/*/
+          sudo -E ./provision/vstos-provision --dry-run
+          echo "the bundle provisions"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vstos-bundle
+          path: dist/
+          if-no-files-found: error
+
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+
+  # ---------------------------------------------------------------------------
+  # Publishing, gated on everything above.
+  #
+  # In the same run as the build rather than in a separate workflow, so a release
+  # carries the exact artefact that was tested - there is no way for the two to
+  # drift apart.
+  publish:
+    name: Publish ${{ github.ref_name == 'main' && 'release' || 'pre-release' }}
+    needs: [tests, provision, bundle]
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      # Full history, so the changelog is generated against the previous release
+      # rather than guessed.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: vstos-bundle
+          path: dist
+
+      - name: Refuse to clobber an existing release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Publishing twice over one tag would silently replace an artefact
+          # someone may already have installed from. Hard stop, with the fix in
+          # the message.
+          if gh release view "${{ needs.bundle.outputs.tag }}" >/dev/null 2>&1; then
+            echo "::error::${{ needs.bundle.outputs.tag }} already exists. Bump VERSION before merging to main."
+            exit 1
+          fi
+
+      - name: Compose the release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.bundle.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then
+            previous="$(gh release list --limit 100 --json tagName,isPrerelease,createdAt \
+              --jq '[.[] | select(.isPrerelease == false)] | sort_by(.createdAt) | last | .tagName // ""' || echo "")"
+          else
+            previous="$(gh release list --limit 100 --json tagName,createdAt \
+              --jq 'sort_by(.createdAt) | last | .tagName // ""' || echo "")"
+          fi
+
+          {
+            if [ "${GITHUB_REF_NAME}" = "dev" ]; then
+              echo "Automated pre-release from \`dev\`. Tested, but not a stable release."
+              echo
+            fi
+
+            echo "Commit \`${GITHUB_SHA:0:8}\`. The lint and unit suite passed, and provisioning"
+            echo "a clean Ubuntu 24.04 container from this commit came up verified."
+            echo
+
+            echo "## Installing"
+            echo
+            echo "On a minimal **Ubuntu 24.04 LTS Server** install, with no desktop:"
+            echo
+            echo '```sh'
+            echo "tar xzf vstos-*.tar.gz && cd vstos-*/"
+            echo "sudo ./provision/vstos-provision"
+            echo "sudo reboot"
+            echo '```'
+            echo
+            echo "Then \`vstos-status\`. Read \`docs/WING.md\` before plugging the console in."
+            echo
+            echo "To build a bootable installer that sets a machine up unattended, run"
+            echo "\`./build/build-iso.sh\` from the same bundle."
+            echo
+            echo "> The bundle is shipped instead of an ISO because a GitHub release asset is"
+            echo "> capped at 2 GB and an Ubuntu-based installer image is past that. It is the"
+            echo "> same code the ISO runs, and it builds the image in one command."
+            echo
+
+            echo "## Changes"
+            echo
+            if [ -n "$previous" ] && git rev-parse -q --verify "refs/tags/$previous" >/dev/null; then
+              echo "Since \`$previous\`:"
+              echo
+              git log --no-merges --pretty=format:'- %s' -n 60 "refs/tags/${previous}..HEAD"
+              echo
+            else
+              echo "Recent commits:"
+              echo
+              git log --no-merges --pretty=format:'- %s' -20
+              echo
+            fi
+          } > release-notes.md
+
+          cat release-notes.md
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          args=(
+            "${{ needs.bundle.outputs.tag }}"
+            --target "${GITHUB_SHA}"
+            --title "VSTOS ${{ needs.bundle.outputs.tag }}$([ '${{ needs.bundle.outputs.prerelease }}' = 'true' ] && echo ' (pre-release)')"
+            --notes-file release-notes.md
+          )
+          [ "${{ needs.bundle.outputs.prerelease }}" = "true" ] && args+=(--prerelease)
+          gh release create "${args[@]}" dist/*
+
+          echo "### Published [${{ needs.bundle.outputs.tag }}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${{ needs.bundle.outputs.tag }})" >> "$GITHUB_STEP_SUMMARY"

@@ -38,7 +38,7 @@ show_cards() {
 show_engine() {
     hr "Engine"
     printf '  configured: %s Hz, %s x %s frames\n' "$SAMPLE_RATE" "$PERIOD" "$NPERIODS"
-    if JACK_NO_START_SERVER=1 jack_wait -c >/dev/null 2>&1; then
+    if vstos_jack_running; then
         ok "JACK is running"
         local rate bufsize
         rate="$(jack_samplerate 2>/dev/null || echo '?')"
@@ -69,7 +69,7 @@ show_xruns() {
 
 show_ports() {
     hr "JACK graph"
-    if ! JACK_NO_START_SERVER=1 jack_wait -c >/dev/null 2>&1; then
+    if ! vstos_jack_running; then
         no "JACK is not running"
         return
     fi

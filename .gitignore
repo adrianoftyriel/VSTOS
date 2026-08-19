@@ -1,5 +1,6 @@
 # Base and built ISO images. Multi-gigabyte, and reproducible from the builder.
 build/*.iso
+dist/
 build/*.iso.sha256
 build/*.iso.part
 

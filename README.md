@@ -91,6 +91,43 @@ on, whether there is a screen.
 
 ---
 
+## Releases
+
+| Branch | Publishes | Tag |
+|---|---|---|
+| `dev` | **pre-release** | `v0.1.0-dev.<run number>` |
+| `main` | **release** | `v0.1.0` |
+
+Every push to either branch lints, runs the suite, provisions a clean Ubuntu
+24.04 container end to end, builds the bundle, installs from that bundle, and
+only then publishes — in the same run, so a release carries the exact artefact
+that was tested.
+
+**The version lives in `VERSION`** and is the single source of truth. Pre-release
+tags append the run number, so `dev` never needs a bump. A release does: if
+`v<version>` already exists, the publish step fails with a message rather than
+replacing an artefact someone may already have installed from. So a real release
+is: bump `VERSION`, merge to `dev`, check the pre-release, merge to `main`.
+
+### What a release contains
+
+A **bundle** — `vstos-<version>.tar.gz`, about 50 kB — not an ISO:
+
+```sh
+tar xzf vstos-*.tar.gz && cd vstos-*/
+sudo ./provision/vstos-provision
+sudo reboot
+```
+
+The ISO is absent for a concrete reason: a GitHub release asset is capped at 2 GB
+and an Ubuntu-based installer image is past that, so it cannot be attached to one.
+The bundle is the same code the ISO runs and contains `build/build-iso.sh`, which
+rebuilds the image in a single command — a better deal than a 3 GB download. CI's
+ISO workflow keeps a built image as a workflow artifact and attaches its checksum
+to the release, so a locally built one can be checked against it.
+
+---
+
 ## Documentation
 
 | | |

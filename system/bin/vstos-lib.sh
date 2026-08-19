@@ -190,6 +190,20 @@ vstos_resolve_device() {
     return 1
 }
 
+# Is the engine up?
+#
+# Not `jack_wait -c` on its own: it exits 0 whether or not a server is there and
+# reports the answer only on stdout ("running" / "not running"). Testing its exit
+# status - the obvious thing to write - makes every caller believe the engine is
+# always up, which turns "no sound" into a diagnostic that confidently points
+# somewhere else.
+vstos_jack_running() {
+    command -v jack_wait >/dev/null 2>&1 || return 1
+    local out
+    out="$(JACK_NO_START_SERVER=1 jack_wait -c 2>/dev/null || true)"
+    [ "$out" = "running" ]
+}
+
 # Block until the console appears. USB enumeration of a 48x48 interface is not
 # instant, and a console powered on at the same moment as the host loses that
 # race every time.
