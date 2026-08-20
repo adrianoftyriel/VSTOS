@@ -180,7 +180,7 @@ sudo systemctl restart vstos-session
 It verifies the download against the release's published checksums, and does
 nothing at all if the version asked for is already installed.
 
-**Plugins and the system:**
+**Plugins and the system** (either release):
 
 ```sh
 sudo apt update && sudo apt upgrade

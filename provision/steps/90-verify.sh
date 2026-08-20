@@ -29,6 +29,14 @@ check "vstos-session installed"      test -x /usr/bin/vstos-session
 check "vstos-status installed"       test -x /usr/bin/vstos-status
 check "jackd present"                command -v jackd
 check "carla present"                command -v carla
+
+# Not just the engine: the client tools VSTOS is built out of. 26.04 moved these
+# from jackd2 into jack-example-tools, and a machine with the engine but without
+# jack_wait starts nothing - vstos-session waits for an engine it cannot see and
+# times out. Checking "is jackd installed" would not have noticed.
+check "jack_wait present"            command -v jack_wait
+check "jack_lsp present"             command -v jack_lsp
+check "jack_samplerate present"      command -v jack_samplerate
 check "realtime limits installed"    test -f /etc/security/limits.d/95-vstos-audio.conf
 check "engine unit installed"        test -f /etc/systemd/system/vstos-jack.service
 check "session unit installed"       test -f /etc/systemd/system/vstos-session.service

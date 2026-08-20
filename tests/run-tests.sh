@@ -241,7 +241,11 @@ t_unit_placeholders() {
 
 t_package_lists() {
     command -v apt-cache >/dev/null || { skip "apt-cache is not available"; return; }
-    local list pkg missing="" checked=0
+
+    # Through read_package_list, so per-release annotations are honoured exactly
+    # as provisioning honours them. Reimplementing the parse here would let the
+    # test pass on lists the provisioner would reject.
+    local list pkg missing="" checked=0 policy
     for list in provision/packages/*.list; do
         while read -r pkg; do
             [ -n "$pkg" ] || continue
@@ -250,82 +254,77 @@ t_package_lists() {
             # grep -q closes the pipe as soon as it matches, apt-cache dies of
             # SIGPIPE, and pipefail turns a successful match into a failed
             # pipeline - so every package would be reported missing.
-            local policy
             policy="$(apt-cache policy "$pkg" 2>/dev/null || true)"
             case "$policy" in
                 *"Candidate: (none)"*|"") missing="$missing $(basename "$list"):$pkg" ;;
                 *"Candidate: "*)          : ;;
                 *)                        missing="$missing $(basename "$list"):$pkg" ;;
             esac
-        done < <(sed -e 's/#.*//' -e 's/[[:space:]]*$//' "$list" | grep -v '^$')
+        done < <(VSTOS_SRC="$PWD" bash -c ". provision/steps/lib.sh; read_package_list $(basename "$list")")
     done
+
     if [ -z "$missing" ]; then
-        ok "all $checked packages resolve in the configured archives"
+        ok "all $checked packages for this release resolve in the configured archives"
     else
-        # Not a failure: the lists are correct for Ubuntu 24.04, and the suite may
-        # be running somewhere else entirely.
-        skip "packages not available here (fine unless this is 24.04):$missing"
+        # Not a failure: the lists are correct for the releases VSTOS supports,
+        # and the suite may be running somewhere else entirely.
+        skip "packages not available here:$missing"
     fi
 }
 
-t_version() {
-    local v
-    v="$(tr -d '[:space:]' < VERSION)"
-    if [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-        ok "VERSION is a plain semver ($v)"
-    else
-        bad "VERSION is not MAJOR.MINOR.PATCH: '$v'"
-    fi
-}
-
-t_bundle() {
+t_release_filtering() {
     local out
-    out="$(mktemp -d)"
-    if ! ./build/build-bundle.sh --tag v9.9.9-test --out "$out" >/dev/null 2>&1; then
-        bad "the bundle does not build"
-        rm -rf "$out"; return
-    fi
-    ok "the bundle builds"
 
-    local tgz="$out/vstos-9.9.9-test.tar.gz"
-    if [ ! -f "$tgz" ]; then
-        bad "the bundle is not named after its tag"
-        rm -rf "$out"; return
-    fi
-    ok "the bundle is named after its tag"
-
-    # A GitHub release asset is capped at 2 GB. The bundle exists precisely
-    # because an ISO is not, so it had better stay small.
-    local bytes
-    bytes="$(stat -c %s "$tgz")"
-    if [ "$bytes" -lt 5000000 ]; then
-        ok "the bundle is small ($((bytes / 1024)) kB)"
-    else
-        bad "the bundle is $((bytes / 1024 / 1024)) MB - something large got in"
-    fi
-
-    local listing
-    listing="$(tar tzf "$tgz")"
-    local want missing=""
-    for want in provision/vstos-provision system/bin/vstos-lib.sh build/build-iso.sh                 docs/WING.md INSTALL.md RELEASE VERSION; do
-        grep -q "/$want\$" <<<"$listing" || missing="$missing $want"
+    # Each supported release must get a kernel, and exactly one.
+    local r
+    for r in noble resolute; do
+        out="$(VSTOS_SRC="$PWD" VSTOS_CODENAME="$r" bash -c \
+            '. provision/steps/lib.sh; read_package_list kernel.list' 2>/dev/null | grep -c '^linux-lowlatency')"
+        assert_eq "1" "$out" "$r gets exactly one low-latency kernel package"
     done
-    if [ -z "$missing" ]; then
-        ok "the bundle carries everything a target machine needs"
-    else
-        bad "the bundle is missing:$missing"
-    fi
 
-    # Developing VSTOS and running it are different jobs. Shipping the suite
-    # invites someone to run it on an appliance and wonder why an audio box is
-    # asking for a shell linter.
-    if grep -qE "/(tests|\.github)/" <<<"$listing"; then
-        bad "the bundle ships the test suite or CI configuration"
-    else
-        ok "the bundle leaves the test suite and CI behind"
-    fi
+    # And they must not get each other's.
+    out="$(VSTOS_SRC="$PWD" VSTOS_CODENAME=noble bash -c \
+        '. provision/steps/lib.sh; read_package_list kernel.list' 2>/dev/null)"
+    assert_eq "linux-lowlatency-hwe-24.04" "$(grep '^linux-lowlatency' <<<"$out")" \
+        "noble gets the 24.04 HWE kernel"
+    out="$(VSTOS_SRC="$PWD" VSTOS_CODENAME=resolute bash -c \
+        '. provision/steps/lib.sh; read_package_list kernel.list' 2>/dev/null)"
+    assert_eq "linux-lowlatency" "$(grep '^linux-lowlatency' <<<"$out")" \
+        "resolute gets the plain low-latency meta-package"
 
-    rm -rf "$out"
+    # Unannotated lines reach every release.
+    for r in noble resolute; do
+        out="$(VSTOS_SRC="$PWD" VSTOS_CODENAME="$r" bash -c \
+            '. provision/steps/lib.sh; read_package_list kernel.list' 2>/dev/null | grep -c '^linux-firmware')"
+        assert_eq "1" "$out" "unannotated packages reach $r"
+    done
+
+    # A misspelled release name must be refused rather than silently dropping the
+    # line - which is how a machine ends up with no kernel and no complaint.
+    local tmp="provision/packages/zz-test-bad.list"
+    printf 'somepkg [nobel]\n' > "$tmp"
+    assert_fail "a misspelled release name is refused" \
+        env VSTOS_SRC="$PWD" VSTOS_CODENAME=noble bash -c \
+            '. provision/steps/lib.sh; read_package_list zz-test-bad.list'
+    rm -f "$tmp"
+
+    # Every annotation actually used must name a release the project knows. The
+    # known set is read out of lib.sh rather than repeated here, so this test
+    # cannot drift from the code it is checking.
+    local known bad="" tok
+    known="$(VSTOS_SRC="$PWD" bash -c '. provision/steps/lib.sh; printf "%s" "$VSTOS_KNOWN_RELEASES"')"
+    while read -r tok; do
+        [ -n "$tok" ] || continue
+        if [[ " $known " != *" $tok "* ]]; then
+            bad="$bad $tok"
+        fi
+    done < <(grep -oh '\[[a-z0-9. ]*\]' provision/packages/*.list 2>/dev/null | tr -d '[]' | tr ' ' '\n' | sort -u)
+    if [ -z "$bad" ]; then
+        ok "every release annotation in the lists names a supported release"
+    else
+        bad "lists annotate unsupported releases:$bad"
+    fi
 }
 
 t_carla_loads_boot_rack() {

@@ -1,10 +1,20 @@
 # The audio engine and the plugin host.
 
-# JACK2. The engine, not a compatibility layer over one. Also supplies jack_lsp,
-# jack_connect, jack_wait, jack_samplerate and jack_bufsize, which is what
-# vstos-status is built out of - the separate jack-tools package is a different
-# set (jack-plumbing, jack-record) and is not needed here.
+# JACK2. The engine, not a compatibility layer over one.
 jackd2
+
+# The JACK client tools: jack_wait, jack_lsp, jack_connect, jack_samplerate,
+# jack_bufsize. VSTOS is built out of these - vstos-session waits for the engine
+# with jack_wait, and vstos-status reads the graph with jack_lsp - so they are not
+# optional extras.
+#
+# 24.04's jackd2 ships all 37 of them itself. 26.04 splits them out into
+# jack-example-tools and leaves jackd2 with three binaries, so on 26.04 this line
+# is the difference between a working appliance and a session that waits 45
+# seconds for an engine it has no way to see and then gives up. (Not to be
+# confused with the `jack-tools` package, which is a different set entirely -
+# jack-plumbing, jack-record - and is not used here.)
+jack-example-tools           [resolute]
 # The console's USB MIDI ports, bridged into JACK MIDI.
 a2jmidid
 
@@ -20,10 +30,20 @@ python3-pyqt5
 python3-pyqt5.qtsvg
 python3-liblo
 
-# JUCE-built plugins - FBKSuppressor among them - link these at load time whether
-# or not an editor is ever opened. Without them the plugin fails to load on a
-# headless box and the failure looks like a missing plugin rather than a missing
-# library.
+# JUCE-built plugins need these. Checking with ldd rather than assuming: a
+# FBKSuppressor VST3 links libfreetype and libfontconfig directly, and reaches
+# X11 and GL through dlopen when an editor is opened rather than at load time.
+#
+# They are listed here, with the audio stack, rather than in session.list with the
+# X server, because they belong to the plugin either way - a headless box has no X
+# server but its plugins still expect to find these when asked about their
+# interface, and a missing dlopen target surfaces as a plugin that will not
+# instantiate rather than as a missing library.
+#
+# libcurl is deliberately absent: FBKSuppressor builds with JUCE_USE_CURL=0 and
+# ldd confirms it is not linked. A t64-suffixed package name is also precisely the
+# kind of thing that stops existing on the next release, so carrying one that
+# nothing needs is a portability hazard for no benefit.
 libfreetype6
 libfontconfig1
 libx11-6
@@ -32,4 +52,3 @@ libxrandr2
 libxinerama1
 libxcursor1
 libgl1
-libcurl4t64

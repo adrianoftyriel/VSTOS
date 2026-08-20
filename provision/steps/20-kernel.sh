@@ -6,38 +6,19 @@ set -euo pipefail
 
 # Installing a kernel is meaningless inside a container, which boots the host's,
 # and it is the slowest step by a wide margin. CI and container smoke tests set
-# this; a real machine must not, or it will come up on the generic kernel.
+# this; a real machine must not, or it will come up on the generic kernel with no
+# tuning at all.
 if [ "${VSTOS_SKIP_KERNEL:-0}" = "1" ]; then
     step_log "VSTOS_SKIP_KERNEL=1: not installing a kernel or touching the boot menu"
     exit 0
 fi
 
-# shellcheck disable=SC1091
-. /etc/os-release
-
-# Ubuntu changed how "the lowlatency kernel" is delivered between 24.04 and 26.04,
-# and both answers are correct for their own release:
-#
-#   24.04 - a separate kernel flavour, built with a 1000 Hz tick and full
-#           preemption. linux-lowlatency-hwe-24.04 is its hardware-enablement
-#           track, which currently carries kernel 7.0.
-#   26.04 - the flavour is retired. The generic kernel gained boot-time
-#           responsiveness tuning, and lowlatency-kernel is a small user-space
-#           package whose job is to set the GRUB command line for it.
-#
-# Choosing by release rather than pinning one name is what lets the base move
-# forward without this becoming a machine that quietly boots a desktop kernel.
-case "${VERSION_ID:-}" in
-    26.04|26.*|27.*)
-        step_log "installing linux-generic with the lowlatency-kernel tuning package"
-        apt_install linux-generic lowlatency-kernel
-        ;;
-    *)
-        step_log "installing the lowlatency kernel flavour"
-        # shellcheck disable=SC2046  # word splitting is the point: one package per line
-        apt_install $(read_package_list kernel.list)
-        ;;
-esac
+# Which package that is differs by release, and packages/kernel.list holds both
+# with the reasoning. Both resolve to the generic 7.0 kernel plus Canonical's
+# lowlatency-kernel tuning package.
+step_log "installing the low-latency kernel for $(vstos_codename)"
+# shellcheck disable=SC2046  # word splitting is the point: one package per line
+apt_install $(read_package_list kernel.list)
 
 # Boot parameters.
 #
@@ -47,6 +28,14 @@ esac
 #   usbcore.autosuspend=-1 - never power-manage a USB device. A console that
 #                            autosuspends between soundchecks comes back as a new
 #                            card index, and the rig is pointing at nothing.
+#
+# These are additions to, not a replacement for, what lowlatency-kernel sets.
+# That package drops /etc/default/grub.d/99-lowlatency.cfg carrying
+# `preempt=full rcu_nocbs=all`, and grub sources that directory in glob order, so
+# 99-lowlatency.cfg is read before 99-vstos.cfg and both append to the same
+# variable. The machine boots with all four. Nothing here needs to repeat
+# preempt=full, and repeating it would only make the eventual command line
+# confusing to read.
 #
 # Not set, deliberately: mitigations=off. It buys real CPU headroom and is widely
 # recommended for audio machines, and it turns off the CPU vulnerability
@@ -58,6 +47,9 @@ GRUB_D=/etc/default/grub.d
 run install -d -m 0755 "$GRUB_D"
 run tee "$GRUB_D/99-vstos.cfg" >/dev/null <<GRUBEOF
 # Managed by VSTOS. Edit /etc/vstos/vstos.conf and re-run vstos-apply instead.
+#
+# Appends to whatever /etc/default/grub.d/99-lowlatency.cfg has already set, so
+# the result is: preempt=full rcu_nocbs=all $VSTOS_CMDLINE
 GRUB_CMDLINE_LINUX_DEFAULT="\$GRUB_CMDLINE_LINUX_DEFAULT $VSTOS_CMDLINE"
 
 # No menu wait on an appliance that has one thing to boot. Held, not zero, so a

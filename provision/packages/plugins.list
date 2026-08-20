@@ -51,8 +51,11 @@ dragonfly-reverb
 # --- Further channel-strip and utility sets -------------------------------------
 # eq10q: parametric EQ, compressor, gate, bass enhancer.
 eq10q
-# Invada: compressor, delay, filters, tube distortion, meters.
-invada-studio-plugins-lv2
+# Invada: compressor, delay, filters, tube distortion, meters. 24.04 only - the
+# package was dropped from 26.04 and has no replacement under another name. Its
+# eighteen plugins are all covered by LSP, Calf and x42, and 26.04's LSP is
+# eighteen plugins larger than 24.04's, so nothing is actually lost.
+invada-studio-plugins-lv2    [noble]
 # abGate: a clean, low-CPU noise gate.
 abgate
 # Fons Adriaensen's plugins as LV2 - parametric EQ, phaser, chorus.

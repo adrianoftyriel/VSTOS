@@ -3,6 +3,7 @@
 #
 #   ./build/build-iso.sh                              download the base ISO, build
 #   ./build/build-iso.sh --iso ubuntu-24.04.3-live-server-amd64.iso
+#   ./build/build-iso.sh --ubuntu 26.04
 #   ./build/build-iso.sh --password hunter2 --hostname foh-rack
 #   ./build/build-iso.sh --fbk-release v0.1.0
 #
@@ -17,9 +18,19 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 
-# The base image. Pinned to a point release rather than tracking "latest": an ISO
-# builder whose output changes because someone else published something is not a
-# builder, it is a surprise.
+# The base image. Pinned rather than tracking "latest": an ISO builder whose
+# output changes because someone else published something is not a builder, it is
+# a surprise.
+#
+# Both LTS releases are supported:
+#
+#   24.04.3   Ubuntu 24.04 LTS  - the default, and what has been in service longer
+#   26.04     Ubuntu 26.04 LTS  - newer base, much newer plugin library
+#
+# Pass --ubuntu 26.04 to build on 26.04. Both end up on the same kernel and the
+# same preemption model; see provision/packages/kernel.list. Note that 26.04 has
+# no point release yet, so its image is plain "26.04" - the URL below is composed
+# from whatever is given, so a later 26.04.1 needs no change here.
 UBUNTU_RELEASE="${UBUNTU_RELEASE:-24.04.3}"
 UBUNTU_ARCH="${UBUNTU_ARCH:-amd64}"
 UBUNTU_ISO="ubuntu-${UBUNTU_RELEASE}-live-server-${UBUNTU_ARCH}.iso"
@@ -48,6 +59,7 @@ usage() { sed -n '2,15p' "$0" | sed 's/^# \?//'; }
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --iso)           SRC_ISO="${2:?}"; shift ;;
+        --ubuntu)        UBUNTU_RELEASE="${2:?}"; shift ;;
         --out)           OUT_ISO="${2:?}"; shift ;;
         --hostname)      HOSTNAME_="${2:?}"; shift ;;
         --user)          ADMIN_USER="${2:?}"; shift ;;
@@ -64,6 +76,16 @@ while [ "$#" -gt 0 ]; do
     esac
     shift
 done
+
+case "$UBUNTU_RELEASE" in
+    24.04*|26.04*) ;;
+    *) die "Ubuntu $UBUNTU_RELEASE is not a release VSTOS provisions (24.04 or 26.04)" ;;
+esac
+
+# Recomposed here rather than at the top because --ubuntu can change the release
+# after those defaults were evaluated.
+UBUNTU_ISO="ubuntu-${UBUNTU_RELEASE}-live-server-${UBUNTU_ARCH}.iso"
+UBUNTU_URL="${UBUNTU_URL:-https://releases.ubuntu.com/${UBUNTU_RELEASE}/${UBUNTU_ISO}}"
 
 command -v xorriso >/dev/null || die "xorriso is required (apt install xorriso)"
 command -v curl    >/dev/null || die "curl is required"

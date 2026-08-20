@@ -25,38 +25,102 @@ That is the whole system. Everything else is configuration.
 
 ---
 
-## Ubuntu 24.04 LTS, and the low-latency kernel
+## The base, and what "the low-latency kernel" now means
 
-Ubuntu changed how the low-latency kernel is delivered between 24.04 and 26.04:
+**Both 24.04 LTS and 26.04 LTS are supported and both are provisioned in CI.**
+24.04 is the default because it has been in service longer; 26.04 is one flag
+away and has a newer plugin library.
 
-- **24.04** ships `linux-lowlatency` as a separate kernel flavour — a 1000 Hz
-  tick, full preemption, threaded interrupt handlers.
-- **26.04** retires it. The generic kernel gained boot-time responsiveness tuning,
-  and the flavour is replaced by `linux-generic` plus a small user-space
-  `lowlatency-kernel` package whose job is to set the GRUB command line.
+The kernel story needs stating carefully, because an earlier version of this
+document got it wrong and the wrong version is the intuitive one.
 
-VSTOS is built on **24.04 LTS**, and the reason is not conservatism. The
-hardware-enablement track `linux-lowlatency-hwe-24.04` currently carries **kernel
-7.0** — the same kernel 26.04 ships — as a genuine low-latency *flavour*. So the
-LTS base gives both the current kernel and the real thing rather than a tuned
-generic one.
+The intuitive version is that Ubuntu ships a low-latency *flavour* — a distinct
+kernel image built with `CONFIG_PREEMPT` and a 1000 Hz tick — and that installing
+`linux-lowlatency` gets you it. That was true, and is no longer. What actually
+happens now:
 
-`provision/steps/20-kernel.sh` knows about both arrangements and picks by release,
-so moving the base forward does not silently turn this into a machine running a
-desktop kernel.
+- The generic kernel is built `PREEMPT_DYNAMIC`, so its preemption model is
+  selected by a **boot parameter** rather than at compile time.
+- Canonical ships `lowlatency-kernel`, a package whose entire contents is one
+  file, `/etc/default/grub.d/99-lowlatency.cfg`, adding
+  `preempt=full rcu_nocbs=all`.
+- `linux-lowlatency` and its HWE variants are now **meta-packages** that pull the
+  generic kernel plus that snippet.
+
+Which means both supported releases land in the same place:
+
+| Release | Package installed | What it actually resolves to |
+|---|---|---|
+| 24.04 (`noble`) | `linux-lowlatency-hwe-24.04` | `linux-image-generic-hwe-24.04` + `lowlatency-kernel` |
+| 26.04 (`resolute`) | `linux-lowlatency` | `linux-image-generic` + `lowlatency-kernel` |
+
+Same kernel version (7.0), same preemption model. The choice of release is
+therefore **not** a choice about latency — it is a choice about how new the rest
+of the userspace is.
+
+The genuine `CONFIG_PREEMPT` flavour has not vanished everywhere: on 24.04,
+`linux-image-lowlatency` still exists, but only on the 6.8 GA kernel. On 26.04 it
+is absent from the archive entirely.
+
+So on 24.04 there is a real decision available:
+
+```sh
+sudo apt install linux-lowlatency     # 24.04 only: the real flavour, at 6.8
+```
+
+VSTOS does not do that by default. A purpose-built PREEMPT image is the better
+kernel *design* for audio, but 6.8 against 7.0 is two years of scheduler, USB and
+driver work, and `preempt=full` on a dynamic kernel reaches the same preemption
+behaviour at runtime. Given the workload here is a USB interface whose interrupt
+timing sets the latency floor anyway, the newer kernel is worth more than the
+older build configuration. If you disagree for your hardware, the command above
+is the whole change.
 
 ### Boot parameters
 
-| | |
-|---|---|
-| `threadirqs` | Interrupt handlers run in schedulable threads, so the USB controller's handler can be prioritised *against* audio processing rather than preempting it blindly. |
-| `usbcore.autosuspend=-1` | Never power-manage a USB device. A console that autosuspends between soundchecks comes back as a new card index, and the rig is pointing at nothing. |
+VSTOS adds its own on top of what `lowlatency-kernel` sets. GRUB sources
+`/etc/default/grub.d/` in glob order, so `99-lowlatency.cfg` is read before
+`99-vstos.cfg` and both append to the same variable — they compose rather than
+conflict, and nothing needs to repeat `preempt=full`.
+
+| From | Parameter | Why |
+|---|---|---|
+| `lowlatency-kernel` | `preempt=full` | Full kernel preemption on a `PREEMPT_DYNAMIC` kernel |
+| `lowlatency-kernel` | `rcu_nocbs=all` | Move RCU callbacks off the audio CPUs |
+| VSTOS | `threadirqs` | Interrupt handlers become schedulable threads, so the USB controller's handler can be prioritised *against* audio processing rather than preempting it blindly |
+| VSTOS | `usbcore.autosuspend=-1` | Never power-manage a USB device. A console that autosuspends between soundchecks comes back as a new card index, and the rig is pointing at nothing |
 
 **`mitigations=off` is deliberately not set.** It buys real CPU headroom and is
 widely recommended for audio machines, and what it buys it with is the CPU
 vulnerability mitigations. On a box that sits on a venue's network that is a
 judgement for the operator, not a default. To enable it, add it to
 `/etc/default/grub.d/99-vstos.cfg` and run `update-grub`.
+
+### What differs between the two releases
+
+Almost nothing, and where it does, `provision/packages/*.list` carries both
+variants side by side with a `[release]` annotation rather than keeping parallel
+per-release directories — the point of reading those files is to see what differs
+and why.
+
+| | 24.04 | 26.04 |
+|---|---|---|
+| Kernel package | `linux-lowlatency-hwe-24.04` | `linux-lowlatency` |
+| JACK client tools | in `jackd2` | split out into `jack-example-tools` |
+| Invada plugins | present | dropped from the archive, no replacement |
+| Carla | 2.5.8 | 2.5.10 |
+| LSP plugins | 176 | 194 |
+| LV2 plugins total | 543 | 520 |
+
+The `jack-example-tools` split is the one that matters, and it is the reason this
+project provisions both releases in CI rather than one. On 26.04, `jackd2` ships
+three binaries; `jack_wait`, `jack_lsp` and the rest moved to a separate package.
+`vstos-session` waits for the engine using `jack_wait`, so a 26.04 machine without
+that package installs cleanly, reports a healthy engine, and never starts the
+plugin host — it waits 45 seconds for something it has no way to observe and then
+gives up. `provision/steps/90-verify.sh` now checks for the individual commands
+VSTOS calls rather than for `jackd` alone, which is the check that would have
+caught it.
 
 ---
 

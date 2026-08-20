@@ -53,7 +53,7 @@ printf '%s\n' "${TAG:-v$VERSION}" > "$stage/RELEASE"
 cat > "$stage/INSTALL.md" <<'MDEOF'
 # Installing this bundle
 
-On a minimal **Ubuntu 24.04 LTS Server** install, with no desktop:
+On a minimal **Ubuntu Server 24.04 LTS or 26.04 LTS** install, with no desktop:
 
 ```sh
 sudo ./provision/vstos-provision
@@ -74,6 +74,8 @@ unattended:
 ```sh
 ./build/build-iso.sh
 ```
+
+The provisioner detects which release it is on and adjusts; both are tested.
 
 Read `README.md` first, and `docs/WING.md` before plugging the console in.
 MDEOF

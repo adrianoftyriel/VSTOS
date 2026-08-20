@@ -17,11 +17,20 @@ case "${ID:-}" in
     *)      step_die "VSTOS provisions Ubuntu (found ID=${ID:-none})" ;;
 esac
 
-case "${VERSION_ID:-}" in
-    24.04) ;;
-    26.04) step_warn "26.04 retires the linux-lowlatency flavour; the kernel step will use linux-generic plus lowlatency-kernel" ;;
-    *)     step_warn "${VERSION_ID:-unknown} is not a release VSTOS has been built against; package names may differ" ;;
-esac
+# Both LTS releases are supported and tested. The package lists carry per-release
+# entries where the names differ, and VSTOS_KNOWN_RELEASES in lib.sh is the list
+# those entries are validated against - so this check and that one cannot drift.
+codename="$(vstos_codename)"
+supported=0
+for r in $VSTOS_KNOWN_RELEASES; do
+    [ "$r" = "$codename" ] && supported=1
+done
+if [ "$supported" = 1 ]; then
+    step_log "release: $codename (${VERSION_ID:-?}), supported"
+else
+    step_warn "$codename (${VERSION_ID:-unknown}) is not a release VSTOS has been built against"
+    step_warn "supported: $VSTOS_KNOWN_RELEASES - package names may differ, and the kernel step will find nothing to install"
+fi
 
 # An appliance with no console attached is normal; an appliance with no network at
 # provisioning time is not, because every package comes from the archive.

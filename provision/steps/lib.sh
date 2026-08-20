@@ -86,12 +86,73 @@ install_template() {
 # Packages
 # ---------------------------------------------------------------------------
 
+# The releases VSTOS is built and tested against. A package list may name one of
+# these to restrict a line to it; naming anything else is a typo, and typos in a
+# release name fail open - the line is silently dropped and a machine comes up
+# without its kernel - so they are rejected instead.
+VSTOS_KNOWN_RELEASES="noble resolute"
+
+# The release being provisioned. Overridable so the filtering can be tested
+# without a machine of that release to hand.
+vstos_codename() {
+    if [ -n "${VSTOS_CODENAME:-}" ]; then
+        printf '%s' "$VSTOS_CODENAME"
+        return 0
+    fi
+    # shellcheck disable=SC1091
+    ( . /etc/os-release 2>/dev/null; printf '%s' "${VERSION_CODENAME:-}" )
+}
+
+_step_trim() {
+    local v="$1"
+    v="${v#"${v%%[![:space:]]*}"}"
+    v="${v%"${v##*[![:space:]]}"}"
+    printf '%s' "$v"
+}
+
 # Package lists carry comments explaining why each entry is there, which is the
 # only reason anyone will be able to prune them later. Strip them here.
+#
+# A line may end with a bracketed list of releases it applies to:
+#
+#   linux-lowlatency-hwe-24.04   [noble]
+#   linux-lowlatency             [resolute]
+#   linux-firmware
+#
+# Unannotated lines apply everywhere. Keeping both variants side by side in one
+# file, rather than in parallel per-release directories, is deliberate: the whole
+# point of reading these files is to see what differs between releases and why.
 read_package_list() {
     local list="$VSTOS_SRC/provision/packages/$1"
     [ -f "$list" ] || step_die "missing package list: $list"
-    sed -e 's/#.*//' -e 's/[[:space:]]*$//' "$list" | grep -v '^$'
+
+    local codename
+    codename="$(vstos_codename)"
+
+    local line pkg releases r matched known
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="$(_step_trim "${line%%#*}")"
+        [ -n "$line" ] || continue
+
+        if [[ "$line" =~ ^(.*[^[:space:]])[[:space:]]*\[([^]]*)\][[:space:]]*$ ]]; then
+            pkg="$(_step_trim "${BASH_REMATCH[1]}")"
+            releases="${BASH_REMATCH[2]}"
+            matched=0
+            for r in $releases; do
+                known=0
+                for k in $VSTOS_KNOWN_RELEASES; do
+                    [ "$r" = "$k" ] && known=1
+                done
+                [ "$known" = 1 ] || step_die "$1: unknown release '$r' (known: $VSTOS_KNOWN_RELEASES)"
+                [ "$r" = "$codename" ] && matched=1
+            done
+            [ "$matched" = 1 ] || continue
+        else
+            pkg="$line"
+        fi
+
+        printf '%s\n' "$pkg"
+    done < "$list"
 }
 
 apt_install() {

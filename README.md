@@ -14,13 +14,13 @@ manager, and nothing to click before audio passes.
 
 | | |
 |---|---|
-| **Base** | Ubuntu 24.04 LTS Server, no desktop |
-| **Kernel** | `linux-lowlatency-hwe-24.04` — the low-latency flavour, currently 7.0 |
+| **Base** | Ubuntu Server **24.04 LTS or 26.04 LTS**, no desktop. Both tested in CI |
+| **Kernel** | Kernel 7.0 with `preempt=full rcu_nocbs=all threadirqs` — see [below](#about-the-low-latency-kernel) |
 | **Engine** | JACK2 directly on ALSA, 48 kHz, 128×3 frames by default |
 | **Host** | Carla — LADSPA, DSSI, LV2, VST2, VST3 and SFZ, with a JACK patchbay |
 | **Session** | A bare X server with one fullscreen client, or fully headless |
 | **Console** | Behringer WING, 48×48 channels, USB Audio Class 2, no driver needed |
-| **Plugins** | ~120 LV2 bundles and ~22 VST3 bundles of free, well-regarded processing |
+| **Plugins** | 543 LV2 plugins on 24.04, 520 on 26.04, plus 22–23 VST3 bundles |
 | **FBKSuppressor** | Installed as VST3 and loaded into the boot rack |
 
 Two ways to get it:
@@ -28,9 +28,11 @@ Two ways to get it:
 ```sh
 # 1. Build an installer ISO and boot it. Erases the target disk, then reboots
 #    into the plugin host with nothing to answer.
-./build/build-iso.sh
+./build/build-iso.sh                  # 24.04 LTS (default)
+./build/build-iso.sh --ubuntu 26.04   # 26.04 LTS
 
-# 2. Or turn an existing minimal Ubuntu 24.04 Server install into VSTOS.
+# 2. Or turn an existing minimal Ubuntu Server install into VSTOS. Works on
+#    either release; the provisioner detects which and adjusts.
 sudo ./provision/vstos-provision
 ```
 
@@ -53,6 +55,35 @@ WING channel 1  ──USB send 1──▶  FBKSuppressor  ──USB return 1─�
 Change which channel in `/etc/vstos/vstos.conf` (`INSERT_CHANNEL`), then
 `vstos-apply`. Adding more instances, and saving your own rack over the shipped
 one, is two commands in [docs/OPERATING.md](docs/OPERATING.md).
+
+---
+
+## About the low-latency kernel
+
+Worth being precise, because the package named `linux-lowlatency` no longer
+contains a low-latency kernel.
+
+It used to be a separate flavour — a distinct image built with `CONFIG_PREEMPT`
+and a 1000 Hz tick. What replaced it is the **generic kernel plus boot-time
+tuning**: the generic kernel is now `PREEMPT_DYNAMIC`, so its preemption model is
+a boot parameter rather than a compile-time choice, and Canonical ships a small
+`lowlatency-kernel` package whose entire contents is one GRUB snippet adding
+`preempt=full rcu_nocbs=all`.
+
+Both supported releases end up in exactly the same place:
+
+| Release | Package | Resolves to |
+|---|---|---|
+| 24.04 | `linux-lowlatency-hwe-24.04` | `linux-image-generic-hwe-24.04` + `lowlatency-kernel` |
+| 26.04 | `linux-lowlatency` | `linux-image-generic` + `lowlatency-kernel` |
+
+Same kernel (7.0), same preemption model, plus VSTOS's own `threadirqs` and
+`usbcore.autosuspend=-1`.
+
+The old `CONFIG_PREEMPT` flavour still exists, but **only on 24.04 and only at
+kernel 6.8** (`sudo apt install linux-lowlatency` there). On 26.04 it is gone from
+the archive entirely. That trade — a purpose-built image against two years of
+kernel work — is argued in [docs/DESIGN.md](docs/DESIGN.md).
 
 ---
 
@@ -158,10 +189,11 @@ tests/              34 checks; ./tests/run-tests.sh
 
 ## Status
 
-Everything here has been exercised on Ubuntu 24.04: the provisioner runs clean
-from a bare container to a verified system, the curated package set resolves and
-installs, and Carla loads the shipped boot rack and instantiates FBKSuppressor
-with all 21 of its parameters. That much is tested in CI on every push.
+Everything here has been exercised on **both** Ubuntu 24.04 and 26.04: the
+provisioner runs clean from a bare root to a verified system on each, the curated
+package set resolves and installs, and Carla loads the shipped boot rack and
+instantiates FBKSuppressor with all 21 of its parameters. 42 tests pass on both,
+and CI provisions both on every push.
 
 What has **not** been tested is a physical WING, because this was built without
 one in reach. The device handling is written against the WING's documented

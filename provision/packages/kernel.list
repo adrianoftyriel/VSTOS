@@ -1,17 +1,41 @@
 # The low-latency kernel.
 #
-# linux-lowlatency-hwe-24.04 is the 24.04 LTS hardware-enablement track of the
-# lowlatency flavour: 1000 Hz tick, full preemption, and threaded interrupt
-# handlers. As of this writing it carries kernel 7.0, so choosing the LTS base
-# does not mean choosing an old kernel.
+# What "the low-latency kernel" means on Ubuntu changed, and it is worth being
+# precise because the package named linux-lowlatency no longer contains one.
 #
-# Worth knowing before upgrading the base: Ubuntu 26.04 retires the separate
-# linux-lowlatency binary package. The generic kernel there gained boot-time
-# responsiveness tuning, and the flavour is replaced by linux-generic plus a
-# lowlatency-kernel package that sets the GRUB command line. provision/steps/
-# 20-kernel.sh knows about both and picks by release, so the base can move
-# without this file changing meaning.
-linux-lowlatency-hwe-24.04
+# Historically it was a separate kernel flavour: a distinct image built with
+# CONFIG_PREEMPT and a 1000 Hz tick. That image still exists on 24.04 as
+# linux-image-lowlatency, but only on the 6.8 GA kernel - and on 26.04 it is gone
+# from the archive entirely.
+#
+# What replaced it is the generic kernel plus boot-time tuning. The generic
+# kernel is now PREEMPT_DYNAMIC, so its preemption model is a boot parameter
+# rather than a compile-time choice, and Canonical ships a small package,
+# lowlatency-kernel, whose entire contents is one GRUB snippet:
+#
+#   /etc/default/grub.d/99-lowlatency.cfg
+#   GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT preempt=full rcu_nocbs=all"
+#
+# Both entries below resolve to exactly that arrangement on kernel 7.0:
+#
+#   noble     linux-lowlatency-hwe-24.04 -> linux-image-generic-hwe-24.04
+#                                           + lowlatency-kernel
+#   resolute  linux-lowlatency           -> linux-image-generic
+#                                           + lowlatency-kernel
+#
+# So the two supported releases end up on the same kernel and the same
+# preemption model. 26.04 is the newer base and has a much newer plugin library;
+# 24.04 is what has been in service longer. Neither is a compromise on latency.
+#
+# If you specifically want the old PREEMPT flavour rather than a tuned generic
+# kernel, it exists only on 24.04 and only at 6.8:
+#
+#   sudo apt install linux-lowlatency     # on 24.04 only; installs 6.8
+#
+# That is a real trade - a purpose-built image against two years of kernel work -
+# and docs/DESIGN.md argues why the tuned 7.0 generic is the better default.
+linux-lowlatency-hwe-24.04   [noble]
+linux-lowlatency             [resolute]
 
 # Firmware for whatever USB and network hardware the box turns out to have.
 linux-firmware

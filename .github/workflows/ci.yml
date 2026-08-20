@@ -33,10 +33,18 @@ jobs:
         run: ./tests/run-tests.sh
 
   provision:
-    name: Provision a clean Ubuntu 24.04
+    name: Provision a clean Ubuntu ${{ matrix.release }}
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # Both supported LTS releases, provisioned for real. This is the only
+        # thing in CI that would catch a package being renamed or dropped between
+        # releases, which is exactly what happens between LTS versions - so it
+        # runs against both rather than against the one the runner happens to be.
+        release: ["24.04", "26.04"]
     container:
-      image: ubuntu:24.04
+      image: ubuntu:${{ matrix.release }}
       # The provisioner writes to /etc, creates users and enables units, which is
       # the whole point of the exercise. It runs as root inside a throwaway
       # container, not on the runner.
@@ -83,6 +91,8 @@ jobs:
       - name: What the plugin library came to
         run: |
           . /usr/lib/vstos/vstos-lib.sh
+          . /etc/os-release
+          echo "release: $VERSION_ID ($VERSION_CODENAME)"
           echo "LV2:  $(vstos_count_bundles lv2 /usr/lib/lv2 /usr/local/lib/lv2)"
           echo "VST3: $(vstos_count_bundles vst3 /usr/lib/vst3 /usr/local/lib/vst3)"
           ls /usr/lib/lv2 | head -40
@@ -218,12 +228,12 @@ jobs:
             fi
 
             echo "Commit \`${GITHUB_SHA:0:8}\`. The lint and unit suite passed, and provisioning"
-            echo "a clean Ubuntu 24.04 container from this commit came up verified."
+            echo "a clean container of both Ubuntu 24.04 and 26.04 from this commit came up verified."
             echo
 
             echo "## Installing"
             echo
-            echo "On a minimal **Ubuntu 24.04 LTS Server** install, with no desktop:"
+            echo "On a minimal **Ubuntu Server 24.04 LTS or 26.04 LTS** install, with no desktop:"
             echo
             echo '```sh'
             echo "tar xzf vstos-*.tar.gz && cd vstos-*/"

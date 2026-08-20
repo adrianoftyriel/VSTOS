@@ -1,8 +1,17 @@
 # The plugin library
 
-**543 LV2 plugins in 122 bundles, plus 22 VST3 bundles.** All free software from
-the Ubuntu archive, so they update with the rest of the machine and are
-redistributable inside an ISO.
+| Base | LV2 plugins | LV2 bundles | VST3 bundles |
+|---|---|---|---|
+| Ubuntu 24.04 LTS | **543** | 122 | 22 |
+| Ubuntu 26.04 LTS | **520** | 119 | 23 |
+
+All free software from the Ubuntu archive, so they update with the rest of the
+machine and are redistributable inside an ISO.
+
+The two releases differ in two places: 26.04 drops the Invada set (18 plugins,
+no replacement under another name) and gains 18 more LSP plugins, which is close
+to a wash and arguably a trade upward. Everything else is the same set at newer
+versions.
 
 Chosen for live sound on a digital console rather than for studio production. The
 question asked of each entry was "would a system tech reach for this during a
@@ -12,7 +21,7 @@ service", which is why there are no synthesisers, samplers or drum machines here
 
 ## What is installed
 
-### Linux Studio Plugins — 176 plugins
+### Linux Studio Plugins — 176 plugins (194 on 26.04)
 
 The centrepiece, and the reason the library is worth having at all. Parametric EQ
 up to 32 bands, compressor, sidechain compressor, expander, gate, limiter,
@@ -52,9 +61,10 @@ old way.
 
 The classic free set, ported to LV2. Worth having for the utilities alone.
 
-### Invada — 18 plugins
+### Invada — 18 plugins, 24.04 only
 
-Compressor, delay, filters, tube distortion, meters.
+Compressor, delay, filters, tube distortion, meters. Dropped from the 26.04
+archive with no replacement; LSP, Calf and x42 cover all of it.
 
 ### eq10q — 17 plugins
 
