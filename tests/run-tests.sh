@@ -48,13 +48,27 @@ t_shellcheck() {
 }
 
 t_bash_syntax() {
-    local f bad_any=0
+    # Selected by shebang, not by filename. Matching names meant the glob for the
+    # extensionless commands in system/bin ("vstos-*") also matched a built
+    # installer image, and the suite went off to run `bash -n` on three gigabytes
+    # of ISO. What makes a file a shell script is the shebang; ask that.
+    #
+    # Build artefacts are excluded outright rather than sniffed: reading the first
+    # line of a binary is how the null bytes in it end up as warnings on stderr.
+    local f first count=0 bad_any=0
     while IFS= read -r f; do
+        first=""
+        IFS= read -r first < "$f" 2>/dev/null || true
+        case "$first" in
+            '#!'*bash*|'#!'*/sh|'#!'*/sh\ *) ;;
+            *) continue ;;
+        esac
+        count=$((count + 1))
         bash -n "$f" 2>/dev/null || { bad "bash -n $f"; bad_any=1; }
-        # system/systemd holds unit files, which are ini, not shell - and
-        # vstos-jack.service would otherwise be handed to bash -n.
-    done < <(find provision system/bin tests build -type f \( -name '*.sh' -o -name 'vstos-*' \) 2>/dev/null)
-    [ "$bad_any" -eq 0 ] && ok "every shell script parses"
+    done < <(find provision system/bin tests build -type f \
+                  ! -name '*.iso' ! -name '*.sha256' ! -name '*.tar.gz' \
+                  ! -name '*.part' ! -name '*.deb' 2>/dev/null)
+    [ "$bad_any" -eq 0 ] && ok "all $count shell scripts parse"
 }
 
 t_python_syntax() {
@@ -160,6 +174,47 @@ GEOF
     assert_fail "grub patcher fails when there is nothing to patch" \
         python3 build/patch-grub-cfg.py "$tmp"
     rm -f "$tmp"
+}
+
+t_iso_builder_startup() {
+    command -v xorriso >/dev/null || { skip "xorriso is not installed"; return; }
+
+    # The regression this guards: `./build/build-iso.sh` with no --password
+    # generates one, and the idiom for that was
+    #
+    #     tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 16
+    #
+    # which under `set -o pipefail` exits 141 - head closes the pipe, /dev/urandom
+    # never ends so tr always dies of SIGPIPE - and takes the script with it
+    # before any output at all. "I ran it and nothing happened."
+    #
+    # Pointing it at an ISO that does not exist makes it fail immediately after
+    # the password work, so a run that reaches that message is a run that got
+    # through generation. Anything else - silence, 141 - is the bug back.
+    local out rc=0
+    out="$(./build/build-iso.sh --iso /nonexistent-vstos-test.iso 2>&1)" || rc=$?
+
+    if [ "$rc" -eq 141 ]; then
+        bad "build-iso.sh dies of SIGPIPE before doing anything (exit 141)"
+    elif [ -z "$out" ]; then
+        bad "build-iso.sh produced no output at all (exit $rc)"
+    elif [[ "$out" == *"no such ISO"* ]]; then
+        ok "build-iso.sh generates a password and reaches its first real check"
+    else
+        bad "build-iso.sh failed unexpectedly: $(head -2 <<<"$out" | tr '\n' ' ')"
+    fi
+
+    # And the generator itself: always 16 characters, never a partial line.
+    local pw bad_len=0 i
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+        pw="$(LC_ALL=C tr -dc 'A-Za-z0-9' < <(head -c 512 /dev/urandom) | cut -c1-16)"
+        [ "${#pw}" -eq 16 ] || bad_len=1
+    done
+    if [ "$bad_len" -eq 0 ]; then
+        ok "the password generator returns 16 characters every time"
+    else
+        bad "the password generator returned a short password"
+    fi
 }
 
 t_autoinstall_yaml() {

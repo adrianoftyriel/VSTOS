@@ -15,6 +15,10 @@
 # image directly, which is also why this runs unchanged in CI.
 set -euo pipefail
 
+# `set -e` exits silently, which on a script whose first real output is minutes
+# away reads as "nothing happened". Anything that dies unexpectedly says where.
+trap 'printf "\nbuild-iso.sh: failed at line %s (exit %s)\n" "$LINENO" "$?" >&2' ERR
+
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 
@@ -37,7 +41,13 @@ UBUNTU_ISO="ubuntu-${UBUNTU_RELEASE}-live-server-${UBUNTU_ARCH}.iso"
 UBUNTU_URL="${UBUNTU_URL:-https://releases.ubuntu.com/${UBUNTU_RELEASE}/${UBUNTU_ISO}}"
 
 VSTOS_REPO="${VSTOS_REPO:-https://github.com/adrianoftyriel/VSTOS.git}"
-VSTOS_BRANCH="${VSTOS_BRANCH:-main}"
+
+# The branch the installed machine clones to provision itself. Defaults to the
+# branch this checkout is on, not to a hardcoded "main": an ISO built from `dev`
+# that provisions from `main` installs Ubuntu, fails the clone, and leaves a bare
+# server with none of this on it - and it fails on the target's hardware, long
+# after the build said it succeeded.
+VSTOS_BRANCH="${VSTOS_BRANCH:-$(git -C "$(dirname "${BASH_SOURCE[0]}")/.." rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)}"
 FBK_RELEASE="${FBK_RELEASE:-}"
 
 HOSTNAME_="vstos"
@@ -90,6 +100,24 @@ UBUNTU_URL="${UBUNTU_URL:-https://releases.ubuntu.com/${UBUNTU_RELEASE}/${UBUNTU
 command -v xorriso >/dev/null || die "xorriso is required (apt install xorriso)"
 command -v curl    >/dev/null || die "curl is required"
 
+# An ISO whose clone fails is an ISO that installs Ubuntu and stops. Check now,
+# where the message costs nothing, rather than on the target machine.
+if branches="$(git ls-remote --heads "$VSTOS_REPO" 2>/dev/null)"; then
+    if ! grep -q "refs/heads/${VSTOS_BRANCH}$" <<<"$branches"; then
+        printf 'error: %s has no branch %s\n' "$VSTOS_REPO" "$VSTOS_BRANCH" >&2
+        printf '\nThe installed machine clones that branch to provision itself, so an ISO\n' >&2
+        printf 'built against a branch that does not exist installs Ubuntu and stops.\n\n' >&2
+        printf 'Branches on that remote:\n' >&2
+        sed -n 's#.*refs/heads/#  #p' <<<"$branches" >&2
+        printf '\nPick one with --branch, or push the branch first.\n' >&2
+        exit 1
+    fi
+    log "provisioning branch $VSTOS_BRANCH exists on the remote"
+else
+    warn "could not reach $VSTOS_REPO to check that branch '$VSTOS_BRANCH' exists"
+    warn "if it does not, the installed machine will come up as bare Ubuntu"
+fi
+
 WORK="$(mktemp -d)"
 cleanup() { [ "$KEEP_WORK" = "1" ] || rm -rf "$WORK"; }
 trap cleanup EXIT
@@ -97,6 +125,20 @@ trap cleanup EXIT
 # ---------------------------------------------------------------------------
 # The administrator account
 # ---------------------------------------------------------------------------
+
+# Deliberately not `tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 16`, which is the
+# idiom everyone reaches for and is broken under `set -o pipefail`:
+#
+#   head closes the pipe after 16 bytes; /dev/urandom never ends, so tr is always
+#   still writing and dies of SIGPIPE; pipefail makes the pipeline exit 141; the
+#   assignment fails; set -e ends the script - before a single line of output.
+#
+# The symptom is "I ran build-iso.sh and nothing happened", which is about as
+# unhelpful as a failure gets. Bounding the input and using a reader that consumes
+# all of it removes the race entirely.
+generate_password() {
+    LC_ALL=C tr -dc 'A-Za-z0-9' < <(head -c 512 /dev/urandom) | cut -c1-16
+}
 
 hash_password() {
     if command -v openssl >/dev/null 2>&1; then
@@ -112,7 +154,8 @@ if [ -z "$ADMIN_PASSWORD_HASH" ]; then
     if [ -z "$ADMIN_PASSWORD" ]; then
         # A generated password beats a default one. A default one ends up on every
         # box built from this script, on networks the builder does not control.
-        ADMIN_PASSWORD="$(tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 16)"
+        ADMIN_PASSWORD="$(generate_password)"
+        [ "${#ADMIN_PASSWORD}" -eq 16 ] || die "could not generate a password"
         GENERATED=1
     fi
     ADMIN_PASSWORD_HASH="$(hash_password "$ADMIN_PASSWORD")"

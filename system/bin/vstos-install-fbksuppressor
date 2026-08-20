@@ -83,7 +83,10 @@ print(r["tag_name"], assets[linux[0]], assets.get("SHA256SUMS.txt", "-"))
         curl -fsSL -o "$tmp/SHA256SUMS.txt" "$sums_url" || die "could not fetch SHA256SUMS.txt"
         local want_sum got_sum base
         base="$(basename "$url")"
-        want_sum="$(awk -v f="$base" '$2 == f || $2 == "*"f { print $1 }' "$tmp/SHA256SUMS.txt" | head -1)"
+        # `exit` inside awk rather than piping to `head -1`: same result, and no
+        # pipeline for a reader to close early on. See generate_password in
+        # build/build-iso.sh for what that costs when it goes wrong.
+        want_sum="$(awk -v f="$base" '$2 == f || $2 == "*"f { print $1; exit }' "$tmp/SHA256SUMS.txt")"
         if [ -n "$want_sum" ]; then
             got_sum="$(sha256sum "$tmp/fbk.zip" | cut -d' ' -f1)"
             [ "$want_sum" = "$got_sum" ] || die "checksum mismatch for $base (expected $want_sum, got $got_sum)"
@@ -117,7 +120,8 @@ install_from_source() {
 
     local version
     version="$(sed -n 's/^project(FBKSuppressor[[:space:]]\+VERSION[[:space:]]\+\([0-9.]*\).*/\1/p' \
-        "$src/CMakeLists.txt" | head -1)"
+        "$src/CMakeLists.txt")"
+    version="${version%%$'\n'*}"
     install_artefacts "$src/build/src/plugin/FBKSuppressor_artefacts/Release" "${version:-source}+source"
 }
 
