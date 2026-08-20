@@ -223,7 +223,8 @@ t_autoinstall_yaml() {
     if ! python3 provision/steps/render-template.py build/autoinstall/user-data.tmpl "$out" \
         HOSTNAME=vstos ADMIN_USER=vstos 'ADMIN_PASSWORD_HASH=$6$x$y' \
         LOCALE=en_GB.UTF-8 KEYBOARD=gb \
-        VSTOS_REPO=https://example.invalid/VSTOS.git VSTOS_BRANCH=main FBK_RELEASE= 2>/dev/null
+        VSTOS_REPO=https://example.invalid/VSTOS.git VSTOS_BRANCH=main FBK_RELEASE= \
+        "INTERACTIVE_SECTIONS=[storage]" "STORAGE_MATCH=size: largest" 2>/dev/null
     then
         bad "the autoinstall template does not render"
         rm -f "$out"; return
@@ -241,6 +242,14 @@ ai = d['autoinstall']
 assert ai['version'] == 1, ai['version']
 assert ai['identity']['hostname'] == 'vstos'
 assert any('vstos-provision' in c for c in ai['late-commands']), 'provisioner is never invoked'
+# The disk must never be chosen unattended without an explicit match. Either a
+# human confirms it, or the match names one exactly. A layout with no match and
+# no interactive storage is what erased somebody's internal drive.
+layout = ai['storage']['layout']
+assert 'match' in layout, 'storage layout has no match directive'
+assert 'storage' in ai['interactive-sections'] or layout['match'].get('install-media') or \
+       any(k in layout['match'] for k in ('serial','path','id_path','devpath')), \
+       'unattended install with no explicitly named disk: %r' % (layout,)
 " "$out" 2>/dev/null; then
         ok "the rendered autoinstall is valid and runs the provisioner"
     else
@@ -279,7 +288,7 @@ t_systemd_units() {
 
 t_unit_placeholders() {
     # Every @PLACEHOLDER@ in a shipped template must be one provisioning supplies.
-    local known=" AUDIO_USER AUDIO_DEVICE_MATCH INSERT_CHANNEL OSC_ENABLED OSC_PORT HOSTNAME ADMIN_USER ADMIN_PASSWORD_HASH LOCALE KEYBOARD VSTOS_REPO VSTOS_BRANCH FBK_RELEASE "
+    local known=" AUDIO_USER AUDIO_DEVICE_MATCH INSERT_CHANNEL OSC_ENABLED OSC_PORT HOSTNAME ADMIN_USER ADMIN_PASSWORD_HASH LOCALE KEYBOARD VSTOS_REPO VSTOS_BRANCH FBK_RELEASE INTERACTIVE_SECTIONS STORAGE_MATCH "
     local f tok missing=""
     while IFS= read -r f; do
         while read -r tok; do

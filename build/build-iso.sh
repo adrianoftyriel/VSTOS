@@ -4,6 +4,12 @@
 #   ./build/build-iso.sh                              download the base ISO, build
 #   ./build/build-iso.sh --iso ubuntu-24.04.3-live-server-amd64.iso
 #   ./build/build-iso.sh --ubuntu 26.04
+#   ./build/build-iso.sh --target-disk install-media     install onto the USB stick
+#   ./build/build-iso.sh --target-disk serial:0123456789
+#
+# WITHOUT --target-disk the installer stops and asks which disk to use. It will
+# never pick one for you: an earlier version did, chose the machine's internal
+# drive, and erased it.
 #   ./build/build-iso.sh --password hunter2 --hostname foh-rack
 #   ./build/build-iso.sh --fbk-release v0.1.0
 #
@@ -56,6 +62,13 @@ ADMIN_PASSWORD=""
 ADMIN_PASSWORD_HASH=""
 LOCALE="en_GB.UTF-8"
 KEYBOARD="gb"
+# Which disk the installer may erase. There is deliberately no default that
+# picks one: see the interactive-sections comment in the autoinstall template.
+#   ""            -> storage is interactive; a human confirms the disk
+#   install-media -> the USB stick this was booted from
+#   serial:XXXX   -> a disk by serial (globbing allowed)
+#   /dev/...      -> a disk by path
+TARGET_DISK=""
 SRC_ISO=""
 OUT_ISO=""
 KEEP_WORK=0
@@ -70,6 +83,7 @@ while [ "$#" -gt 0 ]; do
     case "$1" in
         --iso)           SRC_ISO="${2:?}"; shift ;;
         --ubuntu)        UBUNTU_RELEASE="${2:?}"; shift ;;
+        --target-disk)   TARGET_DISK="${2:?}"; shift ;;
         --out)           OUT_ISO="${2:?}"; shift ;;
         --hostname)      HOSTNAME_="${2:?}"; shift ;;
         --user)          ADMIN_USER="${2:?}"; shift ;;
@@ -96,6 +110,34 @@ esac
 # after those defaults were evaluated.
 UBUNTU_ISO="ubuntu-${UBUNTU_RELEASE}-live-server-${UBUNTU_ARCH}.iso"
 UBUNTU_URL="${UBUNTU_URL:-https://releases.ubuntu.com/${UBUNTU_RELEASE}/${UBUNTU_ISO}}"
+
+# Turn the target into the two values the template needs, and refuse anything
+# that would let the installer choose a disk by itself.
+case "$TARGET_DISK" in
+    "")
+        INTERACTIVE_SECTIONS="[storage]"
+        STORAGE_MATCH="size: largest"
+        TARGET_DESC="asks at the disk screen (nothing is erased unattended)"
+        ;;
+    install-media)
+        INTERACTIVE_SECTIONS="[]"
+        STORAGE_MATCH="install-media: true"
+        TARGET_DESC="the USB stick it boots from - THIS ERASES THAT STICK"
+        ;;
+    serial:*)
+        INTERACTIVE_SECTIONS="[]"
+        STORAGE_MATCH="serial: \"${TARGET_DISK#serial:}\""
+        TARGET_DESC="the disk with serial ${TARGET_DISK#serial:} - THIS ERASES IT"
+        ;;
+    /dev/*)
+        INTERACTIVE_SECTIONS="[]"
+        STORAGE_MATCH="path: \"$TARGET_DISK\""
+        TARGET_DESC="$TARGET_DISK - THIS ERASES IT"
+        ;;
+    *)
+        die "--target-disk must be install-media, serial:<serial>, or /dev/<path> (got '$TARGET_DISK')"
+        ;;
+esac
 
 command -v xorriso >/dev/null || die "xorriso is required (apt install xorriso)"
 command -v curl    >/dev/null || die "curl is required"
@@ -209,6 +251,8 @@ python3 "$ROOT/provision/steps/render-template.py" \
     "ADMIN_PASSWORD_HASH=$ADMIN_PASSWORD_HASH" \
     "LOCALE=$LOCALE" \
     "KEYBOARD=$KEYBOARD" \
+    "INTERACTIVE_SECTIONS=$INTERACTIVE_SECTIONS" \
+    "STORAGE_MATCH=$STORAGE_MATCH" \
     "VSTOS_REPO=$VSTOS_REPO" \
     "VSTOS_BRANCH=$VSTOS_BRANCH" \
     "FBK_RELEASE=$FBK_RELEASE" \
@@ -274,6 +318,7 @@ if [ "${GENERATED:-0}" = "1" ]; then
     printf '  password:   \033[1m%s\033[0m   <- generated; write this down, it is not stored\n' "$ADMIN_PASSWORD"
 fi
 printf '  provisions from: %s (%s)\n' "$VSTOS_REPO" "$VSTOS_BRANCH"
+printf '  installs to:     \033[1m%s\033[0m\n' "$TARGET_DESC"
 printf '\nWrite it to a USB stick and boot the target machine:\n'
 printf '  sudo dd if=%s of=/dev/sdX bs=4M status=progress oflag=sync\n\n' "$OUT_ISO"
 printf 'It will erase the disk it installs to, then reboot into the plugin host.\n'

@@ -12,11 +12,19 @@
 autoinstall:
   version: 1
 
-  # Refuse to run without someone having said so. `interactive-sections: []` plus
-  # this means the installer will still ask for confirmation before erasing a
-  # disk, which is the one question worth keeping on an image that people will
-  # boot on hardware that has something else on it.
-  interactive-sections: []
+  # Which parts of the install still ask a human.
+  #
+  # This defaults to [storage], and that default is not timidity - it is the
+  # correction to a real incident. With `interactive-sections: []` and a storage
+  # layout carrying no match directive, subiquity picks a disk on its own, and on
+  # a machine with an internal drive it picks the internal drive and erases it
+  # without asking. Somebody booted this on hardware with data on it and lost it.
+  #
+  # An appliance image is not allowed to guess which disk it may destroy. Either
+  # a human confirms the target, or the target is named exactly (a serial, a path,
+  # or install-media for the stick it booted from). build/build-iso.sh will not
+  # produce an unattended image without being told which.
+  interactive-sections: @INTERACTIVE_SECTIONS@
 
   locale: @LOCALE@
   keyboard:
@@ -37,6 +45,11 @@ autoinstall:
   storage:
     layout:
       name: lvm
+      # See interactive-sections above. When storage is interactive this only
+      # preselects; when it is not, this is the only thing standing between the
+      # installer and somebody's data.
+      match:
+        @STORAGE_MATCH@
 
   # Deliberately minimal. Everything VSTOS needs is installed by the provisioner
   # from lists that are also used when provisioning an existing machine, so there
