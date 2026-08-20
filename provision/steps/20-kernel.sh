@@ -41,7 +41,11 @@ apt_install $(read_package_list kernel.list)
 # recommended for audio machines, and it turns off the CPU vulnerability
 # mitigations to get it. On a box that sits on a venue's network that is a
 # judgement for the operator, not a default; docs/DESIGN.md says how to enable it.
-VSTOS_CMDLINE="threadirqs usbcore.autosuspend=-1"
+# Read from system/kernel-cmdline so the installed path and the live-USB image
+# cannot drift apart. See that file for what each parameter is for.
+VSTOS_CMDLINE="$(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$VSTOS_SRC/system/kernel-cmdline" | tr '\n' ' ')"
+VSTOS_CMDLINE="$(_step_trim "$VSTOS_CMDLINE")"
+[ -n "$VSTOS_CMDLINE" ] || step_die "system/kernel-cmdline is empty"
 
 GRUB_D=/etc/default/grub.d
 run install -d -m 0755 "$GRUB_D"

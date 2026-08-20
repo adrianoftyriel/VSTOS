@@ -1,0 +1,27 @@
+# Kernel parameters VSTOS wants, in one place because two very different paths
+# need them and they must not drift apart.
+#
+#   installed  provision/steps/20-kernel.sh writes them into
+#              /etc/default/grub.d/99-vstos.cfg
+#   live USB   build/build-live-iso.sh bakes them into the ISO's own grub.cfg,
+#              because a live system has no /etc/default/grub that matters - the
+#              boot loader is on the stick and its config is fixed at build time
+#
+# preempt=full and rcu_nocbs=all are what Canonical's lowlatency-kernel package
+# puts on the command line of an installed machine. They are listed here as well
+# so the live image gets them too; on an installed machine they end up specified
+# twice with identical values, which the kernel does not mind and which is a much
+# better failure mode than a live USB quietly running without them.
+#
+# threadirqs             run interrupt handlers in schedulable threads, so the USB
+#                        controller's handler can be prioritised against audio
+#                        processing rather than preempting it blindly.
+# usbcore.autosuspend=-1 never power-manage a USB device. A console that
+#                        autosuspends between soundchecks comes back as a new card
+#                        index and the rig is pointing at nothing.
+#
+# Not here, deliberately: mitigations=off. See docs/DESIGN.md.
+preempt=full
+rcu_nocbs=all
+threadirqs
+usbcore.autosuspend=-1

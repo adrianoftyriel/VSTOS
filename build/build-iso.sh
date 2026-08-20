@@ -41,7 +41,7 @@ ROOT="$(cd "$HERE/.." && pwd)"
 # same preemption model; see provision/packages/kernel.list. Note that 26.04 has
 # no point release yet, so its image is plain "26.04" - the URL below is composed
 # from whatever is given, so a later 26.04.1 needs no change here.
-UBUNTU_RELEASE="${UBUNTU_RELEASE:-24.04.3}"
+UBUNTU_RELEASE="${UBUNTU_RELEASE:-24.04.4}"
 UBUNTU_ARCH="${UBUNTU_ARCH:-amd64}"
 UBUNTU_ISO="ubuntu-${UBUNTU_RELEASE}-live-server-${UBUNTU_ARCH}.iso"
 UBUNTU_URL="${UBUNTU_URL:-https://releases.ubuntu.com/${UBUNTU_RELEASE}/${UBUNTU_ISO}}"

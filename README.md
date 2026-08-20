@@ -163,6 +163,7 @@ to the release, so a locally built one can be checked against it.
 
 | | |
 |---|---|
+| [docs/LIVE-USB.md](docs/LIVE-USB.md) | Running from a USB stick: building it, persistence, and why it cannot touch your disks |
 | [docs/DESIGN.md](docs/DESIGN.md) | Why JACK and not PipeWire, why X11 and not Wayland, and what was rejected |
 | [docs/WING.md](docs/WING.md) | Console setup, USB routing, sample rate, and what to check when there is no sound |
 | [docs/PLUGINS.md](docs/PLUGINS.md) | What is installed, what to reach for, and how to add more |
