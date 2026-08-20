@@ -1,0 +1,22 @@
+# Take the whole Linux Studio Plugins family from backports on 24.04.
+#
+# Without this, lsp-plugins-vst3 silently does not install and the VST3 build of
+# the largest suite in the library is simply absent - which is what happened on
+# every build of this project until it was noticed.
+#
+# The mechanism: on 24.04, lsp-plugins-lv2 is 1.2.14 in the main archive and
+# lsp-plugins-vst3 exists only in backports at 1.2.16. The VST3 package depends
+# on lsp-plugins-r3d-glx at *exactly* its own version, and backports carries pin
+# priority 100, so apt keeps r3d-glx at 1.2.14 from main and then cannot satisfy
+# the VST3 package at all. It fails the whole plugin transaction, provisioning
+# falls back to installing one package at a time, and the VST3 build gets skipped
+# with a warning nobody reads.
+#
+# Pinning the family - not just the one package - to 500 lets apt move all three
+# to 1.2.16 together, which is the only combination that resolves.
+#
+# 24.04 only. 26.04 has 1.2.27 in the main archive and needs none of this;
+# provision/steps/30-packages.sh installs this file by release.
+Package: lsp-plugins-*
+Pin: release a=noble-backports
+Pin-Priority: 500

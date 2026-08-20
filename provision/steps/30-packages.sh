@@ -38,6 +38,14 @@ else
     apt_install $(read_package_list session.list)
 fi
 
+# On 24.04 the LSP suite has to come from backports as a set, or its VST3 build
+# cannot be installed at all. See the file for the full reasoning.
+if [ "$(vstos_codename)" = "noble" ]; then
+    install_file "$VSTOS_SRC/system/apt/99-vstos-lsp-backports" \
+                 /etc/apt/preferences.d/99-vstos-lsp-backports 0644
+    run apt-get -qq update >/dev/null 2>&1 || step_warn "apt-get update after pinning failed"
+fi
+
 step_log "plugin library"
 # lsp-plugins-vst3 comes from noble-backports, which Ubuntu enables by default but
 # a hardened base image may not. Install the set as a whole first; if that fails,

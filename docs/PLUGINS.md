@@ -2,8 +2,16 @@
 
 | Base | LV2 plugins | LV2 bundles | VST3 bundles |
 |---|---|---|---|
-| Ubuntu 24.04 LTS | **543** | 122 | 22 |
+| Ubuntu 24.04 LTS | **545** | 122 | 23 |
 | Ubuntu 26.04 LTS | **520** | 119 | 23 |
+
+On 24.04 the Linux Studio Plugins suite has to be pinned to backports as a family
+to get its VST3 build at all — `lsp-plugins-vst3` exists only in backports there,
+and depends on a sibling package at exactly its own version, so apt cannot resolve
+it against the older copy in the main archive. Until that was noticed, every build
+of this project quietly shipped without it. `system/apt/99-vstos-lsp-backports`
+does the pinning; 26.04 carries a current LSP in the main archive and needs none
+of it.
 
 All free software from the Ubuntu archive, so they update with the rest of the
 machine and are redistributable inside an ISO.
@@ -21,7 +29,7 @@ service", which is why there are no synthesisers, samplers or drum machines here
 
 ## What is installed
 
-### Linux Studio Plugins — 176 plugins (194 on 26.04)
+### Linux Studio Plugins — 176 plugins, LV2 and VST3 (194 on 26.04)
 
 The centrepiece, and the reason the library is worth having at all. Parametric EQ
 up to 32 bands, compressor, sidechain compressor, expander, gate, limiter,

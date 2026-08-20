@@ -20,7 +20,7 @@ manager, and nothing to click before audio passes.
 | **Host** | Carla — LADSPA, DSSI, LV2, VST2, VST3 and SFZ, with a JACK patchbay |
 | **Session** | A bare X server with one fullscreen client, or fully headless |
 | **Console** | Behringer WING, 48×48 channels, USB Audio Class 2, no driver needed |
-| **Plugins** | 543 LV2 plugins on 24.04, 520 on 26.04, plus 22–23 VST3 bundles |
+| **Plugins** | 545 LV2 plugins on 24.04, 520 on 26.04, plus 23 VST3 bundles |
 | **FBKSuppressor** | Installed as VST3 and loaded into the boot rack |
 
 Two ways to get it:
