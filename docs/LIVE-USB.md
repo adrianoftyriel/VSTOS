@@ -116,3 +116,46 @@ It erases the disk it installs to. It will stop and ask which one unless you nam
 it with `--target-disk`, and it will not choose for you. That safeguard exists
 because an earlier version did choose, picked an internal drive, and destroyed
 what was on it.
+
+---
+
+## From a Windows PC
+
+Two different questions, with two different answers.
+
+### Writing the stick: yes
+
+Use **[Rufus](https://rufus.ie)**. It has built-in persistence support for
+Ubuntu-based images since 3.7, and what it creates is the same `casper-rw`
+partition `vstos-usb-write.sh` makes on Linux — so a stick written from Windows
+behaves identically, saved racks and all.
+
+1. Open Rufus and pick the USB stick under **Device**.
+2. **Boot selection** → SELECT → the `vstos-live-*.iso`.
+3. Set **Persistent partition size** to a few GB. This is the step that matters:
+   leave it at 0 and the stick boots fine but forgets everything at power-off,
+   which on this machine means losing your saved rack.
+4. **Partition scheme**: GPT for a UEFI machine, MBR for an old BIOS one.
+5. START, and accept "Write in DD Image mode" if it asks.
+
+balenaEtcher and Ventoy write the image too, but neither creates the persistence
+partition, so the rig comes up read-only-ish every boot. Rufus is the one to use.
+
+### Building the image: no, not on Windows itself
+
+`build-live-iso.sh` needs root, `chroot`, an overlayfs mount, loop-mounted
+squashfs and about 20 GB — a Linux machine, and a permissive one. Native Windows
+cannot do any of that, and this is not something a bit of porting would fix.
+
+You have three ways round it, best first:
+
+1. **Download one CI built.** Actions → **ISO** workflow → Run workflow, then take
+   `vstos-live-iso` from the finished run's artifacts. No Linux anywhere in the
+   process, and the image is built from the same commit as everything else.
+2. **WSL2.** Plausible but untested by this project — WSL2 has a real kernel and
+   generally supports loop devices and overlayfs, but it is not a guarantee, and
+   a half-finished chroot is an unpleasant thing to debug. If you try it, run
+   `sudo ./build/build-live-iso.sh` and it will tell you what is missing.
+3. **A Linux box or VM.** Any Ubuntu machine with 20 GB free.
+
+Whichever way the image is produced, writing it to the stick is Rufus's job.

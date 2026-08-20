@@ -86,3 +86,59 @@ jobs:
           gh release view "${GITHUB_REF_NAME}" --json body --jq .body > existing-notes.md
           cat existing-notes.md build/iso-release-note.md > combined-notes.md
           gh release edit "${GITHUB_REF_NAME}" --notes-file combined-notes.md
+
+  # ---------------------------------------------------------------------------
+  # The live image - the one people actually boot.
+  #
+  # Built here as well as locally because building it needs root, chroot,
+  # overlayfs and loop-mounted squashfs: a Linux machine, and a fairly permissive
+  # one. Someone on Windows or macOS has no way to produce this themselves, and
+  # writing a downloaded image to a stick is something every platform can do. So
+  # CI builds it and they download it.
+  live:
+    name: Build the live USB image
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xorriso squashfs-tools rsync isolinux
+
+      # The base ISO, the unpacked root filesystem, the rebuilt squashfs and the
+      # output image all coexist for part of the run.
+      - name: Make room
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          df -h /
+
+      - name: Build
+        env:
+          UBUNTU_RELEASE: ${{ inputs.ubuntu_release || '24.04.4' }}
+          FBK_RELEASE: ${{ inputs.fbk_release }}
+          # FBKSuppressor lives in another repository; without a token that can
+          # read it the plugin is left out and the builder says so rather than
+          # shipping a quietly incomplete image.
+          GITHUB_TOKEN: ${{ secrets.FBK_READ_TOKEN || github.token }}
+        run: sudo -E ./build/build-live-iso.sh --out "${GITHUB_WORKSPACE}/vstos-live.iso"
+
+      - name: Checksum
+        run: sha256sum vstos-live.iso | tee vstos-live.iso.sha256
+
+      # A workflow artifact, not a release asset: release assets are capped at
+      # 2 GB and this image is comfortably past that.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vstos-live-iso
+          path: vstos-live.iso
+          retention-days: 14
+          compression-level: 0   # an ISO is already compressed
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vstos-live-iso-checksum
+          path: vstos-live.iso.sha256
+          if-no-files-found: error
