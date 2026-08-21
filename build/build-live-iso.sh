@@ -58,8 +58,8 @@ case "$UBUNTU_RELEASE" in
 esac
 
 [ "$(id -u)" -eq 0 ] || die "must run as root: this unpacks and chroots into a root filesystem"
-for t in xorriso unsquashfs mksquashfs rsync; do
-    command -v "$t" >/dev/null || die "$t is required (apt install xorriso squashfs-tools rsync)"
+for t in xorriso unsquashfs mksquashfs rsync sfdisk sgdisk; do
+    command -v "$t" >/dev/null || die "$t is required (apt install xorriso squashfs-tools rsync fdisk gdisk)"
 done
 
 UBUNTU_ISO="ubuntu-${UBUNTU_RELEASE}-live-server-${UBUNTU_ARCH}.iso"
@@ -389,15 +389,48 @@ rm -f "$ISO_DIR/autoinstall.yaml" "$ISO_DIR/meta-data" "$ISO_DIR/user-data" 2>/d
 
 log "building $OUT_ISO"
 rm -f "$OUT_ISO"
+
+# One xorriso pass, not two, and that is the whole point.
+#
+# This was previously done as: write the image with /casper removed, then reopen
+# it and add the new /casper back. The partition table is computed when the image
+# is written, so it described the intermediate state - the ISO *without* the
+# squashfs. Adding 1.5 GB of casper afterwards grew the image without touching
+# the table, leaving a GPT that claimed the disk ended at 1.2 GB when it ended at
+# 3.2 GB.
+#
+# On a stick that is not cosmetic. The ISO9660 data extends past the end of its
+# own declared partition, and the persistence partition the writer appends lands
+# in territory the table does not account for, so casper's mount of casper-rw
+# fails with "Device or resource busy" and the boot stops in the initramfs.
+#
+# Removing and re-adding in a single pass means the geometry is computed once,
+# against the finished content.
 xorriso -indev "$SRC_ISO" -outdev "$OUT_ISO" \
         -boot_image any replay \
         -volid "VSTOS_LIVE" \
         -compliance no_emul_toc \
-        -rm_r /casper -- >/dev/null 2>"$WORK/x1.log" || { cat "$WORK/x1.log" >&2; die "xorriso stage 1 failed"; }
-xorriso -dev "$OUT_ISO" \
+        -rm_r /casper -- \
         -map "$ISO_DIR/casper" /casper \
         -map "$ISO_DIR/boot/grub/grub.cfg" /boot/grub/grub.cfg \
-        -- >/dev/null 2>"$WORK/x2.log" || { cat "$WORK/x2.log" >&2; die "xorriso stage 2 failed"; }
+        -- >/dev/null 2>"$WORK/x1.log" || { cat "$WORK/x1.log" >&2; die "xorriso failed"; }
+
+# The source ISO carries a third 600-sector partition that `replay` does not
+# reproduce, which leaves the backup GPT a little short of the end. sgdisk -e
+# relocates it, and the result is a table with no inconsistency at all.
+if command -v sgdisk >/dev/null 2>&1; then
+    sgdisk -e "$OUT_ISO" >/dev/null 2>&1 || true
+fi
+
+# Refuse to ship an image whose partition table disagrees with its own size -
+# the exact defect above, caught before anyone writes it to a stick.
+if command -v sfdisk >/dev/null 2>&1; then
+    if sfdisk -l "$OUT_ISO" 2>&1 | grep -qE "PMBR size mismatch|backup GPT table is not"; then
+        sfdisk -l "$OUT_ISO" 2>&1 | grep -E "PMBR size mismatch|backup GPT table is not" >&2
+        die "the built image has an inconsistent partition table; it would not boot reliably"
+    fi
+    log "partition table is consistent with the image"
+fi
 
 ( cd "$(dirname "$OUT_ISO")" && sha256sum "$(basename "$OUT_ISO")" > "$(basename "$OUT_ISO").sha256" )
 

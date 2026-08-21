@@ -54,8 +54,8 @@ DEV="${2:-}"
 [ -f "$ISO" ] || die "no such image: $ISO"
 [ -b "$DEV" ] || die "not a block device: $DEV"
 
-for t in sfdisk mkfs.ext4 partprobe; do
-    command -v "$t" >/dev/null || die "$t is required (apt install fdisk e2fsprogs parted)"
+for t in sfdisk sgdisk mkfs.ext4 partprobe; do
+    command -v "$t" >/dev/null || die "$t is required (apt install fdisk gdisk e2fsprogs parted)"
 done
 
 NAME="$(basename "$DEV")"
@@ -93,10 +93,24 @@ read -r confirm
 log "writing the image"
 dd if="$ISO" of="$DEV" bs=4M status=progress oflag=sync conv=fsync
 
+# The image was written onto a stick that is larger than it, so the GPT's backup
+# copy is sitting wherever the image ended rather than at the end of the device,
+# and the table still describes a disk the size of the image. Relocate it before
+# adding anything, or the appended partition lands outside what the table
+# believes exists - which is how casper ends up unable to mount casper-rw and the
+# boot stops in the initramfs with "Device or resource busy".
+log "moving the backup GPT to the end of the device"
+sgdisk -e "$DEV" >/dev/null 2>&1 || die "could not relocate the backup GPT on $DEV"
+partprobe "$DEV" 2>/dev/null || true
+sleep 1
+
 log "adding the persistence partition"
-# The image is a hybrid ISO: it already carries a partition table, and its
-# partitions end where the image ends. Append one more starting just past it.
-START_SECTOR=$(( (ISO_B + 1048575) / 1048576 * 1048576 / 512 ))   # 1 MiB aligned
+# Start after the last partition the table actually declares, rather than after
+# the image file's size. Those are not the same number once sgdisk has tidied up,
+# and the table is the thing the kernel and casper both read.
+LAST_END=$(sfdisk -d "$DEV" 2>/dev/null | awk -F'[ ,=]+' '/start=/ {for(i=1;i<=NF;i++){if($i=="start")st=$(i+1); if($i=="size")sz=$(i+1)}; e=st+sz; if(e>m)m=e} END{print m+0}')
+[ "${LAST_END:-0}" -gt 0 ] || die "could not read the partition table on $DEV"
+START_SECTOR=$(( (LAST_END + 2047) / 2048 * 2048 ))   # 1 MiB aligned
 printf '%s,,L\n' "$START_SECTOR" | sfdisk --append --no-reread "$DEV" >/dev/null \
     || die "could not append a persistence partition (the stick may be too small)"
 
