@@ -190,12 +190,50 @@ cat > "$ROOTFS/tmp/vstos-chroot.sh" <<'CHROOTEOF'
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
+# Drop the ISO's own package pool from apt's sources before touching apt.
+#
+# The live filesystem is built to be installed from the CD, so it carries a
+# source pointing at file:/cdrom - the pool on the ISO itself. Inside this chroot
+# there is no /cdrom, so `apt-get update` fails with
+#
+#   E: The repository 'file:/cdrom <suite> Release' does not have a Release file.
+#
+# and under `set -e` that ends the chroot script, which surfaces as the useless
+# "provisioning inside the root filesystem failed". 26.04 ships this source where
+# 24.04 did not, so the builder worked on one release and not the other.
+#
+# Removing it rather than bind-mounting the ISO at /cdrom is deliberate: this
+# build wants packages from the network archive, at their current versions, not
+# whatever was frozen onto the installer image.
+#
+# Both source formats, because the archive is mid-migration from one to the
+# other: deb822 stanzas in *.sources, and one-line entries in *.list.
+for f in /etc/apt/sources.list.d/*.sources; do
+    [ -f "$f" ] || continue
+    awk 'BEGIN{RS="";ORS="\n\n"} !/URIs:[ \t]*(file|cdrom):/' "$f" > "$f.vstos-tmp" \
+        && mv "$f.vstos-tmp" "$f"
+done
+for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list; do
+    [ -f "$f" ] || continue
+    sed -i -E '/^[[:space:]]*deb(-src)?[[:space:]]+(\[[^]]*\][[:space:]]+)?(file|cdrom):/d' "$f"
+done
+
+# If that left apt with nothing to talk to - possible if the image's only source
+# was the CD - put the archive back. Better to state the sources outright than to
+# fail later with an empty package list and no obvious cause.
+CODENAME="$(. /etc/os-release; printf '%s' "${VERSION_CODENAME:-}")"
+if ! grep -rhsqE '^(URIs:[[:space:]]*https?:|deb[[:space:]]+(\[[^]]*\][[:space:]]+)?https?:)' \
+        /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null; then
+    printf 'vstos: no network apt source survived; writing one for %s\n' "$CODENAME" >&2
+    printf 'Types: deb\nURIs: http://archive.ubuntu.com/ubuntu/\nSuites: %s %s-updates %s-security\nComponents: main universe restricted multiverse\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n' \
+        "$CODENAME" "$CODENAME" "$CODENAME" > /etc/apt/sources.list.d/ubuntu.sources
+fi
+
 # The base image ships without backports enabled, and lsp-plugins-vst3 - the
 # VST3 build of the largest suite in the library - lives there on 24.04. Without
 # this the plugin step falls back to installing one package at a time and quietly
 # skips it, and the live image ends up with a smaller library than an installed
 # machine gets.
-CODENAME="$(. /etc/os-release; printf '%s' "${VERSION_CODENAME:-}")"
 if [ -f /etc/apt/sources.list.d/ubuntu.sources ] && ! grep -q -- "-backports" /etc/apt/sources.list.d/ubuntu.sources; then
     printf '\nTypes: deb\nURIs: http://archive.ubuntu.com/ubuntu/\nSuites: %s-backports\nComponents: main universe restricted multiverse\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n' \
         "$CODENAME" >> /etc/apt/sources.list.d/ubuntu.sources
@@ -204,7 +242,11 @@ elif [ -f /etc/apt/sources.list ] && ! grep -q -- "-backports" /etc/apt/sources.
         "$CODENAME" >> /etc/apt/sources.list
 fi
 
-apt-get update -qq
+if ! apt-get update -qq; then
+    printf '\nvstos: apt-get update failed inside the chroot. Sources in effect:\n' >&2
+    grep -rhsE '^(Types|URIs|Suites|deb)' /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null >&2
+    exit 1
+fi
 
 # casper for the live boot, and the kernel the provisioner is about to install
 # needs an initramfs that contains casper's hooks.
